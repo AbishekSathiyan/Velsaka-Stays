@@ -15,20 +15,46 @@ const bookingRoutes = require("./routes/bookingRoutes");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust the first reverse proxy hop used by Render.
+// Configure this before rate limiting.
+app.set("trust proxy", 1);
+
 // Security headers
 app.use(helmet());
 
-// CORS: local development + production frontend
+// CORS configuration
 const allowedOrigins = [
   "http://localhost:5173",
   "https://velsaka-stays.vercel.app",
   process.env.CLIENT_URL,
 ].filter(Boolean);
 
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+
+  if (allowedOrigins.includes(origin)) {
+    return true;
+  }
+
+  try {
+    const url = new URL(origin);
+
+    // Allow HTTPS Vercel previews belonging to this project.
+    return (
+      url.protocol === "https:" &&
+      (url.hostname === "velsaka-stays.vercel.app" ||
+        (url.hostname.endsWith(".vercel.app") &&
+          url.hostname.startsWith("velsaka-stays-")))
+    );
+  } catch {
+    return false;
+  }
+}
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (isAllowedOrigin(origin)) {
         return callback(null, true);
       }
 
@@ -297,7 +323,8 @@ async function startServer() {
       console.log(`VELSAKA STAYS API running on port ${PORT}`);
       console.log(`Health: http://localhost:${PORT}/api/health`);
       console.log(`Auth: http://localhost:${PORT}/api/auth`);
-      console.log(`Allowed frontend origins: ${allowedOrigins.join(", ")}`);
+      console.log(`Configured frontend origins: ${allowedOrigins.join(", ")}`);
+      console.log("Vercel preview origin checks enabled.");
     });
   } catch (error) {
     console.error("Failed to start server:", error.message);
