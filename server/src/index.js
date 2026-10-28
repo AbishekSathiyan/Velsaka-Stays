@@ -15,18 +15,37 @@ const bookingRoutes = require("./routes/bookingRoutes");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Security headers
 app.use(helmet());
+
+// CORS: local development + production frontend
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://velsaka-stays.vercel.app",
+  process.env.CLIENT_URL,
+].filter(Boolean);
 
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.warn(`CORS blocked origin: ${origin}`);
+      return callback(new Error("Origin not allowed by CORS"));
+    },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
 
+// Request parsing
 app.use(express.json({ limit: "10kb" }));
 app.use(cookieParser());
 
+// Rate limiting
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -36,6 +55,7 @@ app.use(
   }),
 );
 
+// Health endpoint
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     success: true,
@@ -44,6 +64,7 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+// Test endpoint
 app.get("/api/test", (req, res) => {
   res.status(200).json({
     success: true,
@@ -51,12 +72,13 @@ app.get("/api/test", (req, res) => {
   });
 });
 
+// API routes
 app.use("/api/auth", authRoutes);
 app.use("/api/hotels", hotelRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/bookings", bookingRoutes);
 
-// VELSAKA STAYS API Landing Page
+// VELSAKA STAYS API landing page
 app.get("/", (req, res) => {
   res.status(200).send(`
     <!DOCTYPE html>
@@ -127,6 +149,7 @@ app.get("/", (req, res) => {
         .dot {
           width: 10px;
           height: 10px;
+          flex-shrink: 0;
           border-radius: 50%;
           background: #299b4a;
         }
@@ -160,6 +183,7 @@ app.get("/", (req, res) => {
         }
 
         .method {
+          flex-shrink: 0;
           font-size: 11px;
           font-weight: bold;
           color: #8a7040;
@@ -237,6 +261,7 @@ app.get("/", (req, res) => {
   `);
 });
 
+// JSON response for unknown API endpoints
 app.use("/api", (req, res) => {
   res.status(404).json({
     success: false,
@@ -244,8 +269,13 @@ app.use("/api", (req, res) => {
   });
 });
 
+// Error handler
 app.use((err, req, res, next) => {
   console.error("Server error:", err.message);
+
+  if (res.headersSent) {
+    return next(err);
+  }
 
   res.status(err.status || 500).json({
     success: false,
@@ -254,10 +284,11 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Start server
 async function startServer() {
   try {
     if (!process.env.JWT_SECRET) {
-      throw new Error("JWT_SECRET is missing from .env");
+      throw new Error("JWT_SECRET is missing from environment variables");
     }
 
     await connectDB();
@@ -266,6 +297,7 @@ async function startServer() {
       console.log(`VELSAKA STAYS API running on port ${PORT}`);
       console.log(`Health: http://localhost:${PORT}/api/health`);
       console.log(`Auth: http://localhost:${PORT}/api/auth`);
+      console.log(`Allowed frontend origins: ${allowedOrigins.join(", ")}`);
     });
   } catch (error) {
     console.error("Failed to start server:", error.message);
@@ -274,26 +306,3 @@ async function startServer() {
 }
 
 startServer();
-
-const cors = require("cors");
-
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://velsaka-stays.vercel.app",
-];
-
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow requests without an Origin header, such as health checks.
-      if (!origin || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(new Error(`CORS blocked origin: ${origin}`));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  }),
-);
