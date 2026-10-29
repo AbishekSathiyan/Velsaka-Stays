@@ -14,3 +14,5 @@ router.get("/nearby", hotelController.getNearbyHotels);
 router.get("/:id", hotelController.getHotelById);
 
 module.exports = router;
+
+module.exports = router;
