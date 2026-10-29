@@ -103,8 +103,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/hotels", hotelRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/bookings", bookingRoutes);
-
-// VELSAKA STAYS API landing page
 app.get("/", (req, res) => {
   res.status(200).send(`
     <!DOCTYPE html>
