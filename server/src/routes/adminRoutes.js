@@ -5,7 +5,7 @@ const router = express.Router();
 const {
   verifyFirebaseToken,
   requireDbUser,
-} = require("../middleware/authMiddleware");
+} = require("../middleware/authmiddleware");
 
 const requireAdmin = require("../middleware/requireAdmin");
 
