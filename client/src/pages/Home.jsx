@@ -24,24 +24,22 @@ import {
   Compass,
   Flower2,
   CalendarDays,
+  X,
+  LocateFixed,
 } from "lucide-react";
 
 import { getHotels, getNearbyHotels } from "../api/hotelApi";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
 
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api"
-).replace(/\/+$/, "");
-
 const FALLBACK_IMAGE =
-  "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1200&q=85";
+  "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1000";
 
 const HERO_IMAGE =
-  "https://images.unsplash.com/photo-1611892440504-42a792e24d32?auto=format&fit=crop&w=2200&q=90";
+  "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?w=2000";
 
 const CTA_IMAGE =
-  "https://images.unsplash.com/photo-1571896349842-33c89424de2d?auto=format&fit=crop&w=1800&q=85";
+  "https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=1600";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 25 },
@@ -51,179 +49,211 @@ const fadeUp = {
 const stagger = {
   hidden: {},
   visible: {
-    transition: { staggerChildren: 0.1 },
+    transition: {
+      staggerChildren: 0.12,
+    },
   },
 };
 
-const formatPrice = (price) => {
-  const amount = Number(price);
+const formatPrice = (price) =>
+  Number(price || 0).toLocaleString("en-IN");
 
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return "Price unavailable";
+const getHotelId = (hotel) => hotel?._id || hotel?.id;
+
+const getHotelImage = (hotel) => {
+  const image = hotel?.images?.[0];
+
+  if (typeof image === "string" && image.trim()) {
+    return image;
   }
 
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(amount);
+  if (typeof image === "object" && image?.url) {
+    return image.url;
+  }
+
+  return FALLBACK_IMAGE;
+};
+
+const getErrorMessage = (error) => {
+  const status = error?.response?.status;
+
+  if (status === 400) return "Invalid request. Please check your search.";
+  if (status === 401) return "Please sign in to continue.";
+  if (status === 403) return "You don't have permission to access this.";
+  if (status === 404) return "The requested resource was not found.";
+  if (status >= 500) return "Server error. Please try again shortly.";
+
+  if (error?.code === "ERR_NETWORK") {
+    return "Unable to connect to the server. Please check your internet connection.";
+  }
+
+  return error?.message || "Something went wrong. Please try again.";
 };
 
 const amenityIcons = {
-  "Free Wi-Fi": Wifi,
-  "Swimming Pool": Waves,
-  Restaurant: Utensils,
-  Parking: Car,
-  "Air Conditioning": Sparkles,
-  "Breakfast Included": Coffee,
+  "free wi-fi": Wifi,
+  wifi: Wifi,
+  "free wifi": Wifi,
+  "swimming pool": Waves,
+  restaurant: Utensils,
+  parking: Car,
+  "air conditioning": Sparkles,
+  breakfast: Coffee,
 };
-
-function extractHotels(response) {
-  const candidates = [
-    response?.data?.data,
-    response?.data?.hotels,
-    response?.data,
-    response?.hotels,
-    response,
-  ];
-
-  const result = candidates.find(Array.isArray);
-
-  if (!result) {
-    throw new Error(
-      "Unexpected hotels API response. Check your backend response format."
-    );
-  }
-
-  return result;
-}
-
-function getErrorMessage(error) {
-  const status = error?.response?.status;
-  const message =
-    error?.response?.data?.message ||
-    error?.response?.data?.error;
-
-  if (status === 400) {
-    return message || "Invalid search parameters. Please try again.";
-  }
-
-  if (status === 404) {
-    return "Hotels API route not found. Check your backend route and API URL.";
-  }
-
-  if (status === 500) {
-    return (
-      message ||
-      "Server error. Check your backend and database connection."
-    );
-  }
-
-  if (status === 401 || status === 403) {
-    return (
-      message ||
-      "You do not have permission to access the hotels API."
-    );
-  }
-
-  if (error?.code === "ERR_NETWORK" || !error?.response) {
-    return `Cannot connect to ${API_BASE_URL}. Check your backend, API URL, and CORS settings.`;
-  }
-
-  return message || error?.message || "Unable to load hotels.";
-}
-
-function getHotelId(hotel) {
-  return hotel?._id || hotel?.id;
-}
-
-function getHotelImage(hotel) {
-  const image = hotel?.images?.[0];
-
-  return typeof image === "string" && image.trim()
-    ? image
-    : FALLBACK_IMAGE;
-}
 
 function HotelSkeleton() {
   return (
-    <div className="overflow-hidden rounded-[26px] border border-[#e9e4da] bg-white">
-      <div className="h-64 animate-pulse bg-[#eae7e0] sm:h-72" />
-      <div className="space-y-4 p-6">
-        <div className="h-6 w-3/4 animate-pulse rounded-lg bg-[#eae7e0]" />
-        <div className="h-4 w-1/2 animate-pulse rounded-lg bg-[#eae7e0]" />
-        <div className="h-10 animate-pulse rounded-xl bg-[#eae7e0]" />
+    <div className="overflow-hidden rounded-3xl border border-stone-200 bg-white">
+      <div className="h-60 animate-pulse bg-stone-200" />
+      <div className="space-y-4 p-5">
+        <div className="h-5 w-2/3 animate-pulse rounded bg-stone-200" />
+        <div className="h-4 w-1/2 animate-pulse rounded bg-stone-200" />
+        <div className="h-8 w-full animate-pulse rounded bg-stone-100" />
       </div>
     </div>
   );
 }
 
-function SectionHeading({ eyebrow, title, description }) {
+function SectionHeading({ eyebrow, title, description, centered = false }) {
   return (
-    <motion.div
-      variants={fadeUp}
-      className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"
-    >
-      <div className="max-w-2xl">
-        <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.25em] text-[#96764a] sm:text-xs">
-          <span className="h-px w-7 bg-[#b89a6b]" />
-          {eyebrow}
-        </p>
-
-        <h2 className="mt-4 font-serif text-3xl font-medium leading-tight tracking-tight text-[#183c2b] sm:text-4xl lg:text-5xl">
-          {title}
-        </h2>
-
-        {description && (
-          <p className="mt-4 max-w-xl text-sm leading-7 text-[#77776e] sm:text-base">
-            {description}
-          </p>
-        )}
+    <div className={centered ? "mx-auto mb-12 max-w-2xl text-center" : "mb-10 max-w-2xl"}>
+      <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.25em] text-emerald-800">
+        <span className="h-px w-7 bg-amber-600" />
+        {eyebrow}
       </div>
-    </motion.div>
+
+      <h2 className="font-serif text-3xl font-medium leading-tight text-stone-900 sm:text-4xl lg:text-5xl">
+        {title}
+      </h2>
+
+      {description && (
+        <p className="mt-4 text-sm leading-7 text-stone-500 sm:text-base">
+          {description}
+        </p>
+      )}
+    </div>
   );
 }
 
-function EmptyState({ hasHotels, nearbyMode, onReset, onRetry }) {
-  const title = nearbyMode
-    ? "No stays found nearby"
-    : hasHotels
-      ? "No stays match your search"
-      : "Your next stay awaits";
-
-  const description = nearbyMode
-    ? "Try a larger search radius or return to the full collection to discover more stays."
-    : hasHotels
-      ? "Try a different destination or adjust your price range to discover more stays."
-      : "We couldn't find any hotel listings. Check your connection and try again.";
-
+function EmptyState({ onReset }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="col-span-full rounded-[28px] border border-dashed border-[#d9d1c1] bg-white px-6 py-16 text-center"
-    >
-      <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[#f5efe3] text-[#96764a]">
-        <Search size={27} strokeWidth={1.5} />
+    <div className="col-span-full rounded-3xl border border-dashed border-stone-300 bg-stone-50 px-6 py-16 text-center">
+      <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-800">
+        <BedDouble size={28} />
       </div>
 
-      <h3 className="mt-6 font-serif text-2xl text-[#183c2b]">
-        {title}
+      <h3 className="font-serif text-2xl text-stone-900">
+        No stays found
       </h3>
 
-      <p className="mx-auto mt-3 max-w-md text-sm leading-7 text-[#77776e]">
-        {description}
+      <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-stone-500">
+        We couldn't find hotels matching your current filters. Try another
+        destination or adjust your price range.
       </p>
 
       <button
-        type="button"
-        onClick={hasHotels || nearbyMode ? onReset : onRetry}
-        className="mt-7 inline-flex items-center gap-2 rounded-full bg-[#183c2b] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#28543e]"
+        onClick={onReset}
+        className="mt-7 rounded-full bg-emerald-900 px-7 py-3 text-sm font-semibold text-white transition hover:bg-emerald-800"
       >
-        <RefreshCw size={15} />
-        {hasHotels || nearbyMode ? "Reset search" : "Reload collection"}
+        Clear filters
       </button>
-    </motion.div>
+    </div>
+  );
+}
+
+function HotelCard({ hotel, onOpen, isFavorite, onFavorite }) {
+  const amenities = Array.isArray(hotel.amenities)
+    ? hotel.amenities.slice(0, 3)
+    : [];
+
+  return (
+    <motion.article
+      variants={fadeUp}
+      className="group overflow-hidden rounded-3xl border border-stone-200/80 bg-white transition duration-500 hover:-translate-y-1 hover:shadow-xl hover:shadow-stone-900/10"
+    >
+      <div className="relative h-64 overflow-hidden">
+        <img
+          src={getHotelImage(hotel)}
+          alt={hotel.name || "Hotel"}
+          loading="lazy"
+          onError={(event) => {
+            event.currentTarget.src = FALLBACK_IMAGE;
+          }}
+          className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
+        />
+
+        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+
+        <div className="absolute left-4 top-4 rounded-full bg-white/95 px-3 py-1.5 text-xs font-semibold text-stone-800 shadow">
+          {hotel.starRating || 4} <Star size={12} className="ml-1 inline fill-amber-500 text-amber-500" />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onFavorite(getHotelId(hotel))}
+          aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+          className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-stone-700 shadow transition hover:scale-110"
+        >
+          <Heart
+            size={18}
+            className={isFavorite ? "fill-rose-500 text-rose-500" : ""}
+          />
+        </button>
+
+        <div className="absolute bottom-4 left-4 text-white">
+          <p className="flex items-center gap-1 text-xs font-medium text-white/90">
+            <MapPin size={13} />
+            {hotel.city || "India"}
+          </p>
+        </div>
+      </div>
+
+      <div className="p-5">
+        <h3 className="line-clamp-1 font-serif text-xl font-semibold text-stone-900">
+          {hotel.name || "Premium Stay"}
+        </h3>
+
+        <p className="mt-2 line-clamp-1 text-sm text-stone-500">
+          {hotel.address || hotel.city || "Comfortable accommodation"}
+        </p>
+
+        <div className="mt-5 flex min-h-7 flex-wrap gap-2">
+          {amenities.map((amenity) => {
+            const Icon =
+              amenityIcons[String(amenity).toLowerCase()] || Sparkles;
+
+            return (
+              <span
+                key={amenity}
+                className="inline-flex items-center gap-1.5 rounded-full bg-stone-100 px-2.5 py-1 text-[11px] font-medium text-stone-600"
+              >
+                <Icon size={12} />
+                {amenity}
+              </span>
+            );
+          })}
+        </div>
+
+        <div className="mt-5 flex items-end justify-between border-t border-stone-100 pt-5">
+          <div>
+            <p className="text-xs text-stone-400">Starting from</p>
+            <p className="mt-1 text-xl font-bold text-emerald-900">
+              ₹{formatPrice(hotel.pricePerNight)}
+              <span className="text-xs font-normal text-stone-400"> / night</span>
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onOpen(hotel)}
+            className="flex items-center gap-2 rounded-full bg-emerald-900 px-5 py-3 text-xs font-semibold text-white transition hover:bg-emerald-800"
+          >
+            View stay
+            <ArrowUpRight size={15} />
+          </button>
+        </div>
+      </div>
+    </motion.article>
   );
 }
 
@@ -231,28 +261,29 @@ export default function Home() {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
 
+  // Hotel data
   const [hotels, setHotels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
 
+  // Search filters
   const [city, setCity] = useState("");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
 
-  const [locationNotice, setLocationNotice] = useState("");
+  // Nearby hotels
   const [nearbyHotels, setNearbyHotels] = useState([]);
   const [nearbyMode, setNearbyMode] = useState(false);
   const [nearbyLoading, setNearbyLoading] = useState(false);
-  const [nearbyRadius, setNearbyRadius] = useState("10");
+  const [nearbyRadius, setNearbyRadius] = useState("25");
+  const [locationNotice, setLocationNotice] = useState("");
 
+  // Favorites
   const [favorites, setFavorites] = useState(() => {
     try {
-      const saved = JSON.parse(
-        localStorage.getItem("velsaka-favorites") || "[]"
-      );
-
-      return Array.isArray(saved) ? saved : [];
+      const saved = localStorage.getItem("velsaka-favorites");
+      return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
@@ -260,1141 +291,764 @@ export default function Home() {
 
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
-  const loadHotels = useCallback(async (signal) => {
-    setLoading(true);
-    setError("");
-
+  // Load hotels
+  const loadHotels = useCallback(async () => {
     try {
-      const response = await getHotels({
-        limit: 100,
-        signal,
-      });
+      setLoading(true);
+      setError("");
 
-      const hotelList = extractHotels(response);
+      const hotelsData = await getHotels();
 
-      if (!signal?.aborted) {
-        setHotels(hotelList);
-      }
-    } catch (err) {
-      if (
-        err?.code === "ERR_CANCELED" ||
-        err?.name === "CanceledError" ||
-        err?.name === "AbortError"
-      ) {
-        return;
+      if (!Array.isArray(hotelsData)) {
+        throw new Error("Invalid hotels data received from server.");
       }
 
-      if (signal?.aborted) return;
-
+      setHotels(hotelsData);
+    } catch (error) {
       console.error("Failed to load hotels:", {
-        message: err?.message,
-        status: err?.response?.status,
-        response: err?.response?.data,
-        apiBaseURL: API_BASE_URL,
+        message: error.message,
+        status: error.response?.status,
+        response: error.response?.data,
       });
 
-      setError(getErrorMessage(err));
+      setError(getErrorMessage(error));
       setHotels([]);
     } finally {
-      if (!signal?.aborted) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-
-    loadHotels(controller.signal);
-
-    return () => controller.abort();
+    loadHotels();
   }, [loadHotels, retryKey]);
 
-  const filteredHotels = useMemo(() => {
-    const sourceHotels = nearbyMode ? nearbyHotels : hotels;
+  // Save favorites
+  useEffect(() => {
+    try {
+      localStorage.setItem("velsaka-favorites", JSON.stringify(favorites));
+    } catch (error) {
+      console.error("Unable to save favorites:", error);
+    }
+  }, [favorites]);
 
+  // Toggle favorite
+  const toggleFavorite = useCallback((hotelId) => {
+    if (!hotelId) return;
+
+    setFavorites((previous) =>
+      previous.includes(hotelId)
+        ? previous.filter((id) => id !== hotelId)
+        : [...previous, hotelId]
+    );
+  }, []);
+
+  // Filter hotels
+  const sourceHotels = nearbyMode ? nearbyHotels : hotels;
+
+  const filteredHotels = useMemo(() => {
     return sourceHotels.filter((hotel) => {
       const matchesCity = String(hotel.city || "")
         .toLowerCase()
         .includes(city.trim().toLowerCase());
 
-      const price = Number(hotel.pricePerNight);
-      const matchesMin = minPrice === "" || price >= Number(minPrice);
-      const matchesMax = maxPrice === "" || price <= Number(maxPrice);
+      const price = Number(hotel.pricePerNight || 0);
+
+      const matchesMin =
+        minPrice === "" || price >= Number(minPrice);
+
+      const matchesMax =
+        maxPrice === "" || price <= Number(maxPrice);
 
       return matchesCity && matchesMin && matchesMax;
     });
-  }, [hotels, nearbyHotels, nearbyMode, city, minPrice, maxPrice]);
+  }, [sourceHotels, city, minPrice, maxPrice]);
 
   const featuredHotels = useMemo(() => {
-    return [...filteredHotels]
+    return [...hotels]
       .sort(
         (a, b) =>
           Number(b.starRating || 0) - Number(a.starRating || 0)
       )
       .slice(0, 3);
-  }, [filteredHotels]);
+  }, [hotels]);
 
-  const destinationCount = useMemo(
-    () => new Set(hotels.map((hotel) => hotel.city).filter(Boolean)).size,
-    [hotels]
-  );
+  const destinationCount = useMemo(() => {
+    return new Set(hotels.map((hotel) => hotel.city).filter(Boolean)).size;
+  }, [hotels]);
 
-  function toggleFavorite(id) {
-    if (id == null) return;
+  const favoriteHotels = useMemo(() => {
+    return hotels.filter((hotel) =>
+      favorites.includes(getHotelId(hotel))
+    );
+  }, [hotels, favorites]);
 
-    setFavorites((current) => {
-      const exists = current.some(
-        (item) => String(item) === String(id)
-      );
+  // Navigation
+  const openHotel = (hotel) => {
+    const id = getHotelId(hotel);
 
-      const next = exists
-        ? current.filter((item) => String(item) !== String(id))
-        : [...current, id];
+    if (id) {
+      navigate(`/hotels/${id}`);
+    }
+  };
 
-      try {
-        localStorage.setItem(
-          "velsaka-favorites",
-          JSON.stringify(next)
-        );
-      } catch {
-        // Favorites remain available for this session.
-      }
-
-      return next;
-    });
-  }
-
-  function clearFilters() {
+  const showAllStays = () => {
+    setNearbyMode(false);
     setCity("");
     setMinPrice("");
     setMaxPrice("");
-    setLocationNotice("");
-    setNearbyMode(false);
-    setNearbyHotels([]);
-    setNearbyRadius("10");
-  }
 
-  function scrollToCollection() {
-    document.getElementById("discover")?.scrollIntoView({
-      behavior: reduceMotion ? "auto" : "smooth",
-      block: "start",
+    document.getElementById("collection")?.scrollIntoView({
+      behavior: "smooth",
     });
+  };
 
-    setMobileSearchOpen(false);
-  }
-
-  function showAllStays() {
+  const clearFilters = () => {
+    setCity("");
+    setMinPrice("");
+    setMaxPrice("");
     setNearbyMode(false);
-    setNearbyHotels([]);
     setLocationNotice("");
-  }
+  };
 
-  function searchNearby() {
-    setLocationNotice("");
+  const scrollToCollection = () => {
+    document.getElementById("collection")?.scrollIntoView({
+      behavior: "smooth",
+    });
+  };
 
+  // Nearby hotel search
+  const searchNearby = () => {
     if (!navigator.geolocation) {
-      setLocationNotice(
-        "Your browser does not support location access. Enter a destination instead."
-      );
+      setLocationNotice("Location services are not supported by your browser.");
       return;
     }
 
     setNearbyLoading(true);
+    setLocationNotice("");
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
-        const { latitude, longitude } = position.coords;
-
         try {
-          const response = await getNearbyHotels({
+          const { latitude, longitude } = position.coords;
+
+          const results = await getNearbyHotels({
             lat: latitude,
             lng: longitude,
             radiusKm: Number(nearbyRadius),
             limit: 50,
           });
 
-          const results = response?.data?.data;
-
           if (!Array.isArray(results)) {
-            throw new Error(
-              "Unexpected nearby hotels API response. Check your backend response format."
-            );
+            throw new Error("Invalid nearby hotels response.");
           }
 
           setNearbyHotels(results);
           setNearbyMode(true);
-
           setLocationNotice(
-            results.length > 0
-              ? `Found ${results.length} ${
-                  results.length === 1 ? "stay" : "stays"
-                } within ${nearbyRadius} km of your location.`
-              : `No stays found within ${nearbyRadius} km. Try a larger search radius.`
+            results.length
+              ? `${results.length} nearby stays found.`
+              : "No hotels found nearby. Try increasing the search radius."
           );
 
-          requestAnimationFrame(() => {
-            document.getElementById("discover")?.scrollIntoView({
-              behavior: reduceMotion ? "auto" : "smooth",
-              block: "start",
-            });
-          });
-        } catch (err) {
-          console.error("Nearby hotel search failed:", {
-            message: err?.message,
-            status: err?.response?.status,
-            response: err?.response?.data,
-          });
-
-          setNearbyMode(false);
-          setNearbyHotels([]);
-          setLocationNotice(
-            `${getErrorMessage(err)} Check that the nearby hotels backend route is configured.`
-          );
+          scrollToCollection();
+        } catch (error) {
+          console.error("Nearby hotel search failed:", error);
+          setLocationNotice(getErrorMessage(error));
         } finally {
           setNearbyLoading(false);
         }
       },
-      (geoError) => {
-        setNearbyLoading(false);
+      (error) => {
+        const messages = {
+          1: "Location permission denied. Please allow location access in your browser.",
+          2: "Your current location could not be determined.",
+          3: "Location request timed out. Please try again.",
+        };
 
-        if (geoError.code === 1) {
-          setLocationNotice(
-            "Location permission was declined. Allow location access in your browser settings to find nearby stays."
-          );
-        } else if (geoError.code === 2) {
-          setLocationNotice(
-            "Your location is unavailable. Check your device location settings and try again."
-          );
-        } else if (geoError.code === 3) {
-          setLocationNotice(
-            "The location request timed out. Please try again."
-          );
-        } else {
-          setLocationNotice(
-            "Unable to retrieve your location. Please try again."
-          );
-        }
+        setLocationNotice(
+          messages[error.code] || "Unable to access your location."
+        );
+
+        setNearbyLoading(false);
       },
       {
-        enableHighAccuracy: false,
-        timeout: 15000,
+        enableHighAccuracy: true,
+        timeout: 12000,
         maximumAge: 300000,
       }
     );
-  }
+  };
 
   const motionProps = reduceMotion
     ? {}
     : {
         initial: "hidden",
         whileInView: "visible",
-        viewport: { once: true, amount: 0.12 },
+        viewport: { once: true, amount: 0.15 },
         variants: stagger,
       };
 
   return (
-    <div className="min-h-screen overflow-x-clip bg-[#faf9f6] font-sans text-[#202a23] selection:bg-[#d8bd8b]/40">
+    <div className="min-h-screen bg-[#faf9f6] text-stone-900">
       <Header />
 
-      <main>
-        {/* HERO */}
-        <section className="relative isolate min-h-[650px] overflow-hidden bg-[#10291d] sm:min-h-[720px] lg:min-h-[760px]">
+      {/* HERO SECTION */}
+      <section className="relative flex min-h-[680px] items-center overflow-hidden bg-stone-900 sm:min-h-[740px]">
+        <img
+          src={HERO_IMAGE}
+          alt="Luxury hotel resort"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+
+        <div className="absolute inset-0 bg-gradient-to-r from-black/75 via-black/45 to-black/20" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-black/10" />
+
+        <div className="relative mx-auto w-full max-w-7xl px-5 pb-20 pt-28 sm:px-8 lg:px-12">
           <motion.div
-            initial={reduceMotion ? false : { scale: 1.1 }}
-            animate={{ scale: 1 }}
-            transition={{ duration: 1.8, ease: "easeOut" }}
-            className="absolute inset-0 -z-30"
+            initial={reduceMotion ? false : { opacity: 0, y: 30 }}
+            animate={reduceMotion ? {} : { opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            className="max-w-3xl"
           >
-            <img
-              src={HERO_IMAGE}
-              alt="Beautiful luxury hotel interior"
-              fetchPriority="high"
-              onError={(event) => {
-                event.currentTarget.onerror = null;
-                event.currentTarget.src = FALLBACK_IMAGE;
-              }}
-              className="h-full w-full object-cover"
-            />
+            <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-2 text-xs font-medium tracking-wider text-white backdrop-blur-md">
+              <Gem size={14} className="text-amber-300" />
+              DISCOVER YOUR NEXT ESCAPE
+            </div>
+
+            <h1 className="font-serif text-5xl font-medium leading-[1.1] text-white sm:text-6xl lg:text-7xl">
+              Find your place
+              <br />
+              <span className="italic text-amber-200">
+                away from home.
+              </span>
+            </h1>
+
+            <p className="mt-7 max-w-xl text-sm leading-7 text-white/80 sm:text-base sm:leading-8">
+              Discover thoughtfully selected stays, beautiful destinations,
+              and memorable experiences with VELSAKA STAYS.
+            </p>
+
+            <div className="mt-9 flex flex-wrap gap-4">
+              <button
+                onClick={scrollToCollection}
+                className="inline-flex items-center gap-3 rounded-full bg-amber-200 px-7 py-4 text-sm font-bold text-stone-900 transition hover:bg-amber-100"
+              >
+                Explore stays
+                <ArrowRight size={17} />
+              </button>
+
+              <button
+                onClick={searchNearby}
+                disabled={nearbyLoading}
+                className="inline-flex items-center gap-2 rounded-full border border-white/50 bg-white/10 px-7 py-4 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20 disabled:opacity-60"
+              >
+                <LocateFixed size={17} />
+                {nearbyLoading ? "Finding stays..." : "Explore nearby"}
+              </button>
+            </div>
+
+            <div className="mt-12 flex flex-wrap gap-8 border-t border-white/20 pt-7">
+              <div>
+                <p className="font-serif text-3xl text-white">
+                  {hotels.length}+
+                </p>
+                <p className="mt-1 text-xs text-white/60">Available stays</p>
+              </div>
+
+              <div>
+                <p className="font-serif text-3xl text-white">
+                  {destinationCount}+
+                </p>
+                <p className="mt-1 text-xs text-white/60">Destinations</p>
+              </div>
+
+              <div>
+                <p className="font-serif text-3xl text-white">24/7</p>
+                <p className="mt-1 text-xs text-white/60">Booking access</p>
+              </div>
+            </div>
           </motion.div>
+        </div>
 
-          <div className="absolute inset-0 -z-20 bg-[#10291d]/45" />
-          <div className="absolute inset-0 -z-10 bg-gradient-to-r from-[#10291d]/95 via-[#10291d]/75 to-[#10291d]/20" />
-          <div className="absolute inset-x-0 bottom-0 -z-10 h-64 bg-gradient-to-t from-[#10291d]/70 to-transparent" />
+        <div className="absolute bottom-0 right-0 hidden h-36 w-36 items-center justify-center rounded-tl-full bg-amber-200 text-emerald-950 md:flex">
+          <div className="text-center">
+            <Flower2 className="mx-auto mb-1" size={28} />
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em]">
+              Stay
+            </p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em]">
+              Inspired
+            </p>
+          </div>
+        </div>
+      </section>
 
-          <div className="mx-auto flex min-h-[650px] max-w-7xl flex-col justify-center px-5 pb-20 pt-20 sm:min-h-[720px] sm:pb-24 lg:min-h-[760px] lg:px-8">
-            <motion.div
-              initial={reduceMotion ? false : { opacity: 0, y: 35 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{
-                duration: 0.9,
-                ease: [0.22, 1, 0.36, 1],
-              }}
-              className="max-w-3xl"
-            >
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-white backdrop-blur-md sm:text-xs">
-                <Gem size={15} className="text-[#e0c79b]" />
-                Thoughtfully chosen stays
-              </div>
-
-              <h1 className="mt-8 font-serif text-5xl font-medium leading-[1.08] tracking-tight text-white sm:text-6xl lg:text-8xl">
-                Travel well.
-                <br />
-                <span className="italic text-[#e0c79b]">
-                  Stay beautifully.
-                </span>
-              </h1>
-
-              <p className="mt-7 max-w-xl text-sm leading-8 text-white/75 sm:text-lg">
-                Extraordinary journeys begin with the right place. Discover
-                considered stays, memorable destinations, and spaces made for
-                slowing down.
+      {/* SEARCH PANEL */}
+      <section className="relative z-10 mx-auto -mt-10 max-w-7xl px-5 sm:px-8 lg:px-12">
+        <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-xl shadow-stone-900/5 sm:p-7">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-800">
+                Find your stay
               </p>
+              <h2 className="mt-1 font-serif text-2xl text-stone-900">
+                Where would you like to go?
+              </h2>
+            </div>
 
-              <div className="mt-9 flex flex-wrap items-center gap-4">
-                <motion.button
-                  type="button"
-                  whileHover={reduceMotion ? undefined : { y: -3 }}
-                  whileTap={reduceMotion ? undefined : { scale: 0.97 }}
-                  onClick={scrollToCollection}
-                  className="group inline-flex items-center gap-3 rounded-full bg-[#d8bd8b] px-6 py-4 text-sm font-semibold text-[#183c2b] shadow-lg shadow-black/10 transition hover:bg-white sm:px-7"
-                >
-                  Explore our collection
-                  <ArrowRight
-                    size={17}
-                    className="transition-transform group-hover:translate-x-1"
-                  />
-                </motion.button>
-
-                <div className="flex items-center gap-2 px-1 text-xs font-medium text-white/80 sm:text-sm">
-                  <ShieldCheck size={17} className="text-[#e0c79b]" />
-                  A more thoughtful way to stay
-                </div>
-              </div>
-            </motion.div>
-
-            <motion.div
-              initial={reduceMotion ? false : { opacity: 0, y: 25 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.3 }}
-              className="mt-16 grid max-w-2xl grid-cols-3 border-t border-white/20 pt-6 sm:mt-20"
+            <button
+              type="button"
+              onClick={() => setMobileSearchOpen((value) => !value)}
+              className="rounded-full bg-stone-100 p-3 text-stone-700 sm:hidden"
+              aria-label="Toggle search filters"
             >
-              <div className="pr-3 sm:pr-6">
-                <p className="font-serif text-2xl text-white sm:text-4xl">
-                  {loading ? "—" : hotels.length}
-                </p>
-                <p className="mt-2 text-[10px] leading-5 text-white/60 sm:text-xs">
-                  Places to discover
-                </p>
-              </div>
-
-              <div className="border-l border-white/20 px-4 sm:px-6">
-                <p className="font-serif text-2xl text-white sm:text-4xl">
-                  {loading ? "—" : destinationCount}
-                </p>
-                <p className="mt-2 text-[10px] leading-5 text-white/60 sm:text-xs">
-                  Destinations
-                </p>
-              </div>
-
-              <div className="border-l border-white/20 pl-4 sm:pl-6">
-                <p className="font-serif text-2xl text-white sm:text-4xl">
-                  {favorites.length}
-                </p>
-                <p className="mt-2 text-[10px] leading-5 text-white/60 sm:text-xs">
-                  Your saved stays
-                </p>
-              </div>
-            </motion.div>
+              {mobileSearchOpen ? <X size={18} /> : <SlidersHorizontal size={18} />}
+            </button>
           </div>
 
-          <motion.div
-            animate={reduceMotion ? {} : { y: [0, 6, 0] }}
-            transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
-            className="absolute bottom-7 right-6 hidden items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/70 lg:flex"
+          <div
+            className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_auto] ${
+              mobileSearchOpen ? "" : "hidden sm:grid"
+            }`}
           >
-            Scroll to explore
-            <div className="grid h-9 w-9 place-items-center rounded-full border border-white/25">
-              <ChevronDown size={16} />
-            </div>
-          </motion.div>
-        </section>
+            <div className="rounded-2xl border border-stone-200 px-4 py-3">
+              <label className="mb-2 flex items-center gap-2 text-xs font-semibold text-stone-500">
+                <MapPin size={14} className="text-emerald-800" />
+                Destination
+              </label>
 
-        {/* SEARCH PANEL */}
-        <section className="relative z-10 mx-auto max-w-7xl px-5 pt-12 sm:pt-16 lg:px-8 lg:pt-20">
-          <motion.div
-            initial={reduceMotion ? false : { opacity: 0, y: 35 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.15 }}
-            transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
-            className="overflow-hidden rounded-[28px] border border-[#e9e3d8] bg-white shadow-[0_20px_70px_-30px_rgba(24,60,43,0.2)]"
-          >
-            <div className="relative overflow-hidden bg-[#183c2b] px-5 py-7 sm:px-8 sm:py-9">
-              <div className="absolute -right-12 -top-20 h-56 w-56 rounded-full border border-white/10" />
-              <div className="absolute -right-5 -top-12 h-40 w-40 rounded-full border border-white/10" />
-
-              <div className="relative flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[#e0c79b]">
-                    Your next journey
-                  </p>
-
-                  <h2 className="mt-3 font-serif text-2xl text-white sm:text-3xl">
-                    Find your next escape
-                  </h2>
-
-                  <p className="mt-2 text-sm text-white/65">
-                    Explore stays that suit your journey.
-                  </p>
-                </div>
-
-                <motion.div
-                  animate={
-                    reduceMotion ? {} : { y: [0, -5, 0], rotate: [0, 4, 0] }
-                  }
-                  transition={{
-                    duration: 4,
-                    repeat: Infinity,
-                    ease: "easeInOut",
-                  }}
-                  className="hidden h-14 w-14 shrink-0 place-items-center rounded-2xl border border-white/15 bg-white/10 text-[#e0c79b] sm:grid"
-                >
-                  <Compass size={27} strokeWidth={1.4} />
-                </motion.div>
-
-                <button
-                  type="button"
-                  onClick={() => setMobileSearchOpen((value) => !value)}
-                  aria-expanded={mobileSearchOpen}
-                  aria-label="Toggle search filters"
-                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/20 text-white sm:hidden"
-                >
-                  <SlidersHorizontal size={18} />
-                </button>
-              </div>
+              <input
+                type="text"
+                value={city}
+                onChange={(event) => {
+                  setCity(event.target.value);
+                  setNearbyMode(false);
+                }}
+                placeholder="Search city..."
+                className="w-full bg-transparent text-sm font-medium text-stone-900 outline-none placeholder:font-normal placeholder:text-stone-400"
+              />
             </div>
 
-            <div
-              className={`p-5 sm:p-8 ${
-                mobileSearchOpen ? "block" : "hidden sm:block"
-              }`}
+            <div className="rounded-2xl border border-stone-200 px-4 py-3">
+              <label className="mb-2 flex items-center gap-2 text-xs font-semibold text-stone-500">
+                <SlidersHorizontal size={14} className="text-emerald-800" />
+                Minimum price
+              </label>
+
+              <input
+                type="number"
+                min="0"
+                value={minPrice}
+                onChange={(event) => setMinPrice(event.target.value)}
+                placeholder="₹ Minimum"
+                className="w-full bg-transparent text-sm font-medium outline-none placeholder:font-normal placeholder:text-stone-400"
+              />
+            </div>
+
+            <div className="rounded-2xl border border-stone-200 px-4 py-3">
+              <label className="mb-2 flex items-center gap-2 text-xs font-semibold text-stone-500">
+                <SlidersHorizontal size={14} className="text-emerald-800" />
+                Maximum price
+              </label>
+
+              <input
+                type="number"
+                min="0"
+                value={maxPrice}
+                onChange={(event) => setMaxPrice(event.target.value)}
+                placeholder="₹ Maximum"
+                className="w-full bg-transparent text-sm font-medium outline-none placeholder:font-normal placeholder:text-stone-400"
+              />
+            </div>
+
+            <button
+              onClick={scrollToCollection}
+              className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-900 px-7 py-4 text-sm font-bold text-white transition hover:bg-emerald-800"
             >
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <label className="flex min-w-0 items-center gap-3 rounded-2xl border border-[#ede9e0] bg-[#faf9f6] px-4 py-4 transition focus-within:border-[#b89a6b] focus-within:bg-white">
-                  <MapPin size={21} className="shrink-0 text-[#96764a]" />
+              <Search size={17} />
+              Search stays
+            </button>
+          </div>
 
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[10px] font-bold uppercase tracking-[0.15em] text-[#77776e]">
-                      Destination
-                    </span>
-
-                    <input
-                      value={city}
-                      onChange={(event) => setCity(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") scrollToCollection();
-                      }}
-                      placeholder="Enter city name"
-                      className="mt-2 w-full bg-transparent text-sm font-medium text-[#183c2b] outline-none placeholder:font-normal placeholder:text-[#a09b90]"
-                    />
-                  </span>
-                </label>
-
-                <label className="flex min-w-0 items-center gap-3 rounded-2xl border border-[#ede9e0] bg-[#faf9f6] px-4 py-4 transition focus-within:border-[#b89a6b] focus-within:bg-white">
-                  <Search size={20} className="shrink-0 text-[#96764a]" />
-
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[10px] font-bold uppercase tracking-[0.15em] text-[#77776e]">
-                      Minimum price
-                    </span>
-
-                    <input
-                      type="number"
-                      min="0"
-                      value={minPrice}
-                      onChange={(event) => setMinPrice(event.target.value)}
-                      placeholder="₹ 0"
-                      className="mt-2 w-full bg-transparent text-sm font-medium text-[#183c2b] outline-none placeholder:font-normal placeholder:text-[#a09b90]"
-                    />
-                  </span>
-                </label>
-
-                <label className="flex min-w-0 items-center gap-3 rounded-2xl border border-[#ede9e0] bg-[#faf9f6] px-4 py-4 transition focus-within:border-[#b89a6b] focus-within:bg-white sm:col-span-2 lg:col-span-1">
-                  <SlidersHorizontal
-                    size={20}
-                    className="shrink-0 text-[#96764a]"
-                  />
-
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[10px] font-bold uppercase tracking-[0.15em] text-[#77776e]">
-                      Maximum price
-                    </span>
-
-                    <input
-                      type="number"
-                      min="0"
-                      value={maxPrice}
-                      onChange={(event) => setMaxPrice(event.target.value)}
-                      placeholder="No limit"
-                      className="mt-2 w-full bg-transparent text-sm font-medium text-[#183c2b] outline-none placeholder:font-normal placeholder:text-[#a09b90]"
-                    />
-                  </span>
-                </label>
-              </div>
-
-              {locationNotice && (
-                <motion.p
-                  initial={reduceMotion ? false : { opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  role="status"
-                  className="mt-4 rounded-xl bg-[#f6f4ef] px-4 py-3 text-xs leading-6 text-[#68685e]"
-                >
-                  {locationNotice}
-                </motion.p>
-              )}
-
-              <div className="mt-5 flex flex-col gap-4 border-t border-[#eeeae2] pt-5 sm:flex-row sm:items-center sm:justify-between">
-                <p className="flex items-center gap-2 text-xs leading-5 text-[#858176]">
-                  <ShieldCheck size={16} className="shrink-0 text-[#67806a]" />
-                  Discover stays and compare nightly prices.
-                </p>
-
-                <div className="grid gap-3 sm:flex sm:flex-wrap sm:items-center">
-                  <label className="flex items-center justify-between gap-3 rounded-full border border-[#dcd5c7] px-4 py-3">
-                    <span className="flex items-center gap-2 text-xs font-semibold text-[#183c2b]">
-                      <MapPin size={16} className="text-[#96764a]" />
-                      Radius
-                    </span>
-
-                    <select
-                      value={nearbyRadius}
-                      onChange={(event) => setNearbyRadius(event.target.value)}
-                      disabled={nearbyLoading}
-                      aria-label="Nearby search radius"
-                      className="bg-transparent text-sm font-medium text-[#183c2b] outline-none disabled:opacity-60"
-                    >
-                      <option value="5">5 km</option>
-                      <option value="10">10 km</option>
-                      <option value="25">25 km</option>
-                      <option value="50">50 km</option>
-                    </select>
-                  </label>
-
-                  <motion.button
-                    type="button"
-                    whileHover={
-                      reduceMotion || nearbyLoading ? undefined : { y: -2 }
-                    }
-                    whileTap={
-                      reduceMotion || nearbyLoading
-                        ? undefined
-                        : { scale: 0.97 }
-                    }
-                    onClick={searchNearby}
-                    disabled={nearbyLoading}
-                    className="inline-flex items-center justify-center gap-2 rounded-full border border-[#dcd5c7] px-5 py-3.5 text-sm font-semibold text-[#183c2b] transition hover:border-[#183c2b] hover:bg-[#f6f4ef] disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {nearbyLoading ? (
-                      <RefreshCw size={17} className="animate-spin" />
-                    ) : (
-                      <MapPin size={17} />
-                    )}
-
-                    {nearbyLoading ? "Finding stays..." : "Search Nearby"}
-                  </motion.button>
-
-                  <motion.button
-                    type="button"
-                    whileHover={reduceMotion ? undefined : { y: -2 }}
-                    whileTap={reduceMotion ? undefined : { scale: 0.97 }}
-                    onClick={scrollToCollection}
-                    className="inline-flex items-center justify-center gap-2 rounded-full bg-[#183c2b] px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-[#28543e]"
-                  >
-                    Update Search
-                    <ArrowRight size={17} />
-                  </motion.button>
-                </div>
-              </div>
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 pt-4">
+            <div className="flex items-center gap-2 text-xs text-stone-500">
+              <Compass size={15} className="text-emerald-800" />
+              Discover hotels across your favourite destinations.
             </div>
-          </motion.div>
-        </section>
 
-        {/* HOTEL COLLECTION */}
-        <section
-          id="discover"
-          className="mx-auto max-w-7xl scroll-mt-12 px-5 pb-20 pt-24 lg:px-8 lg:pb-28 lg:pt-32"
-        >
-          <motion.div {...motionProps}>
+            <div className="flex items-center gap-3">
+              <select
+                value={nearbyRadius}
+                onChange={(event) => setNearbyRadius(event.target.value)}
+                className="rounded-full border border-stone-200 bg-white px-3 py-2 text-xs text-stone-600 outline-none"
+                aria-label="Nearby search radius"
+              >
+                <option value="10">10 km radius</option>
+                <option value="25">25 km radius</option>
+                <option value="50">50 km radius</option>
+                <option value="100">100 km radius</option>
+              </select>
+
+              <button
+                onClick={searchNearby}
+                disabled={nearbyLoading}
+                className="flex items-center gap-2 text-xs font-bold text-emerald-900 hover:text-emerald-700 disabled:opacity-50"
+              >
+                <LocateFixed size={15} />
+                {nearbyLoading ? "Searching..." : "Near me"}
+              </button>
+            </div>
+          </div>
+
+          {locationNotice && (
+            <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-xs text-emerald-900">
+              {locationNotice}
+            </p>
+          )}
+        </div>
+      </section>
+
+      {/* HOTEL COLLECTION */}
+      <section id="collection" className="scroll-mt-24 py-24">
+        <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-12">
+          <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
             <SectionHeading
-              eyebrow="The Velsaka collection"
-              title={
-                <>
-                  Places that stay
-                  <br className="hidden sm:block" /> with you.
-                </>
-              }
-              description="From peaceful retreats to memorable city stays, discover a place that makes every part of your journey feel special."
+              eyebrow="Curated collection"
+              title="Stays worth discovering."
+              description="Explore comfortable and memorable stays selected for your next journey."
             />
 
-            <div className="mt-8 flex flex-wrap items-center justify-between gap-4 border-b border-[#e6e0d5] pb-5">
-              <p className="text-sm text-[#77776e]">
-                {loading
-                  ? "Discovering available stays..."
-                  : nearbyMode
-                    ? `${filteredHotels.length} nearby ${
-                        filteredHotels.length === 1 ? "stay" : "stays"
-                      } within ${nearbyRadius} km`
-                    : `${filteredHotels.length} ${
-                        filteredHotels.length === 1 ? "stay" : "stays"
-                      } to explore`}
+            <button
+              onClick={showAllStays}
+              className="mb-10 flex items-center gap-2 self-start text-sm font-bold text-emerald-900 transition hover:gap-3 sm:self-auto"
+            >
+              View all stays
+              <ArrowRight size={16} />
+            </button>
+          </div>
+
+          {nearbyMode && (
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-emerald-50 p-4">
+              <p className="text-sm font-medium text-emerald-900">
+                Showing nearby hotels
               </p>
 
-              <p className="flex items-center gap-2 text-xs text-[#77776e]">
-                <SlidersHorizontal size={15} />
-                Refine your search above
-              </p>
+              <button
+                onClick={() => {
+                  setNearbyMode(false);
+                  setLocationNotice("");
+                }}
+                className="text-xs font-bold text-emerald-900 underline"
+              >
+                Show all hotels
+              </button>
             </div>
+          )}
 
-            {nearbyMode && !loading && (
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#e9e3d8] bg-white p-4">
-                <p className="text-sm text-[#68685e]">
-                  Showing stays near your current location.
+          {error && (
+            <div className="mb-8 flex flex-col justify-between gap-4 rounded-2xl border border-red-200 bg-red-50 p-5 sm:flex-row sm:items-center">
+              <div>
+                <p className="font-semibold text-red-800">
+                  Unable to load hotels
                 </p>
+                <p className="mt-1 text-sm text-red-700">{error}</p>
+              </div>
 
+              <button
+                onClick={() => setRetryKey((value) => value + 1)}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-red-700 px-5 py-3 text-xs font-bold text-white hover:bg-red-800"
+              >
+                <RefreshCw size={14} />
+                Try again
+              </button>
+            </div>
+          )}
+
+          {!loading && !error && (
+            <div className="mb-7 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-stone-500">
+                Showing{" "}
+                <span className="font-bold text-stone-900">
+                  {filteredHotels.length}
+                </span>{" "}
+                properties
+              </p>
+
+              {(city || minPrice || maxPrice || nearbyMode) && (
                 <button
-                  type="button"
-                  onClick={showAllStays}
-                  className="inline-flex items-center gap-2 rounded-full bg-[#183c2b] px-5 py-3 text-xs font-semibold text-white transition hover:bg-[#28543e]"
+                  onClick={clearFilters}
+                  className="text-xs font-bold text-emerald-900 underline"
                 >
-                  Show all stays
-                  <ArrowRight size={15} />
+                  Clear all filters
                 </button>
-              </div>
-            )}
+              )}
+            </div>
+          )}
 
-            {loading && (
-              <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {[1, 2, 3].map((item) => (
-                  <HotelSkeleton key={item} />
-                ))}
-              </div>
-            )}
+          <motion.div
+            {...motionProps}
+            className="grid gap-7 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            {loading ? (
+              Array.from({ length: 6 }).map((_, index) => (
+                <HotelSkeleton key={index} />
+              ))
+            ) : filteredHotels.length > 0 ? (
+              filteredHotels.map((hotel) => {
+                const hotelId = getHotelId(hotel);
 
-            {!loading && error && (
-              <div className="mt-8 rounded-[24px] border border-red-200 bg-white p-7 sm:p-10">
-                <div className="flex items-start gap-4">
-                  <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-red-50 text-red-600">
-                    <RefreshCw size={21} />
+                return (
+                  <HotelCard
+                    key={hotelId}
+                    hotel={hotel}
+                    onOpen={openHotel}
+                    isFavorite={favorites.includes(hotelId)}
+                    onFavorite={toggleFavorite}
+                  />
+                );
+              })
+            ) : !error ? (
+              <EmptyState onReset={clearFilters} />
+            ) : null}
+          </motion.div>
+        </div>
+      </section>
+
+      {/* FEATURED SECTION */}
+      <section className="bg-[#f0eee7] py-24">
+        <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-12">
+          <SectionHeading
+            eyebrow="Handpicked for you"
+            title="A little more extraordinary."
+            description="Discover some of our highest-rated properties for a memorable experience."
+          />
+
+          <div className="grid gap-6 md:grid-cols-3">
+            {featuredHotels.map((hotel) => (
+              <motion.button
+                key={getHotelId(hotel)}
+                type="button"
+                onClick={() => openHotel(hotel)}
+                whileHover={reduceMotion ? {} : { y: -7 }}
+                className="group relative h-[380px] overflow-hidden rounded-3xl text-left"
+              >
+                <img
+                  src={getHotelImage(hotel)}
+                  alt={hotel.name || "Featured hotel"}
+                  loading="lazy"
+                  onError={(event) => {
+                    event.currentTarget.src = FALLBACK_IMAGE;
+                  }}
+                  className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105"
+                />
+
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
+
+                <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
+                  <div className="mb-3 flex items-center gap-1 text-amber-300">
+                    {Array.from({
+                      length: Math.min(
+                        5,
+                        Math.max(1, Number(hotel.starRating || 4))
+                      ),
+                    }).map((_, index) => (
+                      <Star
+                        key={index}
+                        size={13}
+                        className="fill-current"
+                      />
+                    ))}
                   </div>
 
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-serif text-2xl text-[#183c2b]">
-                      We couldn't load the collection
-                    </h3>
+                  <p className="text-xs text-white/70">
+                    {hotel.city || "India"}
+                  </p>
 
-                    <p className="mt-3 break-words text-sm leading-7 text-[#77776e]">
-                      {error}
+                  <h3 className="mt-1 font-serif text-2xl">
+                    {hotel.name}
+                  </h3>
+
+                  <div className="mt-4 flex items-center justify-between">
+                    <p className="text-sm font-semibold">
+                      ₹{formatPrice(hotel.pricePerNight)}{" "}
+                      <span className="font-normal text-white/70">
+                        / night
+                      </span>
                     </p>
 
-                    <button
-                      type="button"
-                      onClick={() => setRetryKey((current) => current + 1)}
-                      className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#183c2b] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#28543e]"
-                    >
-                      <RefreshCw size={15} />
-                      Try again
-                    </button>
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-stone-900 transition group-hover:bg-amber-200">
+                      <ArrowUpRight size={18} />
+                    </span>
                   </div>
                 </div>
-              </div>
-            )}
+              </motion.button>
+            ))}
+          </div>
+        </div>
+      </section>
 
-            {!loading && !error && filteredHotels.length === 0 && (
-              <div className="mt-8">
-                <EmptyState
-                  hasHotels={hotels.length > 0}
-                  nearbyMode={nearbyMode}
-                  onReset={clearFilters}
-                  onRetry={() => setRetryKey((current) => current + 1)}
-                />
-              </div>
-            )}
+      {/* WHY VELSAKA */}
+      <section className="py-24">
+        <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-12">
+          <div className="grid gap-14 lg:grid-cols-2 lg:items-center">
+            <div>
+              <SectionHeading
+                eyebrow="The VELSAKA difference"
+                title="Travel better. Stay beautifully."
+                description="We make discovering your next stay simple, convenient, and enjoyable."
+              />
 
-            {!loading && !error && filteredHotels.length > 0 && (
-              <motion.div
-                initial="hidden"
-                animate="visible"
-                variants={stagger}
-                className="mt-8 grid gap-7 sm:grid-cols-2 lg:grid-cols-3"
-              >
-                {filteredHotels.map((hotel, index) => {
-                  const id = getHotelId(hotel);
-
-                  const isFavorite =
-                    id != null &&
-                    favorites.some((item) => String(item) === String(id));
-
-                  const amenities = Array.isArray(hotel.amenities)
-                    ? hotel.amenities
-                    : [];
-
-                  const rating = Number(hotel.starRating);
-                  const displayRating =
-                    Number.isFinite(rating) && rating > 0 ? rating : 3;
-
-                  const distanceMeters = Number(hotel.distanceMeters);
+              <div className="space-y-7">
+                {[
+                  {
+                    icon: ShieldCheck,
+                    title: "A comfortable booking experience",
+                    description:
+                      "Find the details you need to make a confident booking decision.",
+                  },
+                  {
+                    icon: Gem,
+                    title: "Thoughtfully presented stays",
+                    description:
+                      "Explore properties with useful information, images, and amenities.",
+                  },
+                  {
+                    icon: HeadphonesIcon,
+                    title: "Designed around your journey",
+                    description:
+                      "Discover destinations and stays that make travel easier.",
+                  },
+                ].map((item) => {
+                  const Icon = item.icon;
 
                   return (
-                    <motion.article
-                      key={id ?? `${hotel.name}-${index}`}
-                      variants={fadeUp}
-                      transition={{
-                        duration: reduceMotion ? 0 : 0.55,
-                        ease: [0.22, 1, 0.36, 1],
-                      }}
-                      whileHover={reduceMotion ? undefined : { y: -7 }}
-                      className="group min-w-0 overflow-hidden rounded-[26px] border border-[#e9e4da] bg-white transition-shadow duration-500 hover:shadow-[0_24px_60px_-25px_rgba(24,60,43,0.24)]"
-                    >
-                      <div className="relative h-64 overflow-hidden bg-[#eae7e0] sm:h-72">
-                        <motion.img
-                          src={getHotelImage(hotel)}
-                          alt={hotel.name || "Hotel accommodation"}
-                          loading="lazy"
-                          onError={(event) => {
-                            event.currentTarget.onerror = null;
-                            event.currentTarget.src = FALLBACK_IMAGE;
-                          }}
-                          initial={reduceMotion ? false : { scale: 1.08 }}
-                          whileInView={
-                            reduceMotion ? undefined : { scale: 1 }
-                          }
-                          viewport={{ once: true, amount: 0.15 }}
-                          className={`h-full w-full object-cover ${
-                            reduceMotion
-                              ? ""
-                              : "transition-transform duration-700 group-hover:scale-105"
-                          }`}
-                        />
-
-                        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-black/10" />
-
-                        <div className="absolute left-4 top-4 flex flex-wrap gap-2">
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/40 bg-white/95 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-[#183c2b]">
-                            <Gem size={13} className="text-[#96764a]" />
-                            {displayRating} star stay
-                          </span>
-
-                          {index === 0 && (
-                            <span className="rounded-full bg-[#d8bd8b] px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-[#183c2b]">
-                              {nearbyMode ? "Nearest match" : "Featured"}
-                            </span>
-                          )}
-                        </div>
-
-                        <motion.button
-                          type="button"
-                          whileTap={reduceMotion ? undefined : { scale: 0.88 }}
-                          onClick={() => toggleFavorite(id)}
-                          disabled={id == null}
-                          aria-pressed={isFavorite}
-                          aria-label={
-                            isFavorite
-                              ? "Remove from favorites"
-                              : "Add to favorites"
-                          }
-                          className="absolute right-4 top-4 grid h-11 w-11 place-items-center rounded-full border border-white/60 bg-white/95 text-[#183c2b] shadow-sm transition hover:bg-white disabled:cursor-not-allowed"
-                        >
-                          <Heart
-                            size={19}
-                            className={
-                              isFavorite
-                                ? "fill-rose-500 text-rose-500"
-                                : ""
-                            }
-                          />
-                        </motion.button>
-
-                        <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-3 text-white">
-                          <div className="flex min-w-0 items-center gap-2 text-sm font-medium drop-shadow">
-                            <MapPin size={15} className="shrink-0" />
-                            <span className="truncate">
-                              {hotel.city || "Discover this destination"}
-                            </span>
-                          </div>
-
-                          <div className="flex shrink-0 items-center gap-1 rounded-full bg-white/95 px-3 py-2 text-xs font-bold text-[#183c2b]">
-                            <Star
-                              size={13}
-                              className="fill-[#b89a6b] text-[#b89a6b]"
-                            />
-                            {displayRating.toFixed(1)}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="p-5 sm:p-6">
-                        <h3 className="line-clamp-1 font-serif text-2xl font-medium text-[#183c2b] transition-colors group-hover:text-[#96764a]">
-                          {hotel.name || "Unnamed stay"}
-                        </h3>
-
-                        {nearbyMode &&
-                          Number.isFinite(distanceMeters) &&
-                          distanceMeters >= 0 && (
-                            <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-[#96764a]">
-                              <MapPin size={13} />
-                              {(distanceMeters / 1000).toFixed(1)} km away
-                            </p>
-                          )}
-
-                        <p className="mt-3 line-clamp-2 min-h-12 text-sm leading-6 text-[#858176]">
-                          {hotel.description ||
-                            "Discover this property and explore the amenities available for your stay."}
-                        </p>
-
-                        <div className="mt-5 flex min-h-8 flex-wrap gap-2">
-                          {amenities.slice(0, 3).map((amenity, amenityIndex) => {
-                            const Icon = amenityIcons[amenity] || Coffee;
-
-                            return (
-                              <span
-                                key={`${amenity}-${amenityIndex}`}
-                                className="inline-flex items-center gap-1.5 rounded-full bg-[#f6f4ef] px-3 py-2 text-[10px] font-medium text-[#68685e]"
-                              >
-                                <Icon
-                                  size={13}
-                                  className="text-[#96764a]"
-                                />
-                                {amenity}
-                              </span>
-                            );
-                          })}
-
-                          {amenities.length === 0 && (
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#f6f4ef] px-3 py-2 text-[10px] font-medium text-[#68685e]">
-                              <BedDouble size={13} />
-                              Comfortable accommodation
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="mt-6 flex items-end justify-between gap-3 border-t border-[#eeeae2] pt-5">
-                          <div className="min-w-0">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#858176]">
-                              Starting from
-                            </p>
-
-                            <p className="mt-2 font-serif text-xl font-semibold text-[#183c2b] sm:text-2xl">
-                              {formatPrice(hotel.pricePerNight)}
-                            </p>
-
-                            <p className="mt-1 text-[11px] text-[#858176]">
-                              Per night
-                            </p>
-                          </div>
-
-                          <motion.button
-                            type="button"
-                            whileHover={reduceMotion ? undefined : { y: -2 }}
-                            whileTap={reduceMotion ? undefined : { scale: 0.97 }}
-                            onClick={() => {
-                              if (id != null) navigate(`/hotels/${id}`);
-                            }}
-                            disabled={id == null}
-                            className="inline-flex shrink-0 items-center gap-2 rounded-full bg-[#183c2b] px-4 py-3.5 text-xs font-semibold text-white transition hover:bg-[#28543e] disabled:cursor-not-allowed disabled:opacity-50 sm:px-5"
-                          >
-                            View stay
-                            <ArrowUpRight size={15} />
-                          </motion.button>
-                        </div>
-                      </div>
-                    </motion.article>
-                  );
-                })}
-              </motion.div>
-            )}
-          </motion.div>
-        </section>
-
-        {/* FEATURED STAY */}
-        {!loading && !error && featuredHotels.length > 0 && (
-          <section className="border-y border-[#e8e2d7] bg-[#f1eee6]">
-            <div className="mx-auto grid max-w-7xl gap-10 px-5 py-16 sm:py-20 lg:grid-cols-2 lg:items-center lg:gap-16 lg:px-8 lg:py-24">
-              <motion.div
-                initial={reduceMotion ? false : { opacity: 0, x: -25 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true, amount: 0.2 }}
-                transition={{ duration: 0.75 }}
-                className="relative"
-              >
-                <div className="overflow-hidden rounded-[28px]">
-                  <motion.img
-                    src={getHotelImage(featuredHotels[0])}
-                    alt={featuredHotels[0].name || "Featured accommodation"}
-                    loading="lazy"
-                    onError={(event) => {
-                      event.currentTarget.onerror = null;
-                      event.currentTarget.src = FALLBACK_IMAGE;
-                    }}
-                    initial={reduceMotion ? false : { scale: 1.06 }}
-                    whileInView={reduceMotion ? undefined : { scale: 1 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 1 }}
-                    className="h-[350px] w-full object-cover sm:h-[480px]"
-                  />
-                </div>
-
-                <motion.div
-                  initial={reduceMotion ? false : { opacity: 0, y: 15 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: 0.25, duration: 0.5 }}
-                  className="absolute -bottom-5 right-4 max-w-[270px] rounded-2xl border border-[#e9e3d8] bg-white p-5 shadow-xl sm:-right-5 sm:p-6"
-                >
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#96764a]">
-                    Worth discovering
-                  </p>
-
-                  <p className="mt-3 font-serif text-xl text-[#183c2b]">
-                    {featuredHotels[0].name}
-                  </p>
-
-                  <p className="mt-2 flex items-center gap-1.5 text-xs text-[#858176]">
-                    <MapPin size={13} />
-                    {featuredHotels[0].city || "Explore this destination"}
-                  </p>
-                </motion.div>
-              </motion.div>
-
-              <motion.div
-                initial={reduceMotion ? false : { opacity: 0, x: 25 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true, amount: 0.2 }}
-                transition={{ duration: 0.75, delay: 0.1 }}
-                className="pt-6 lg:pt-0"
-              >
-                <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.25em] text-[#96764a] sm:text-xs">
-                  <span className="h-px w-7 bg-[#b89a6b]" />
-                  A little more extraordinary
-                </p>
-
-                <h2 className="mt-5 font-serif text-4xl font-medium leading-tight text-[#183c2b] sm:text-5xl">
-                  Your next favourite place is closer than you think.
-                </h2>
-
-                <p className="mt-6 text-sm leading-8 text-[#77776e] sm:text-base">
-                  The right stay is more than somewhere to sleep. It is the
-                  quiet morning, the welcoming space, and the memories you
-                  take home. Explore our collection to find a place that fits
-                  the way you want to travel.
-                </p>
-
-                <div className="mt-7 space-y-4">
-                  {[
-                    {
-                      icon: ShieldCheck,
-                      title: "Explore with confidence",
-                      description:
-                        "Review property details before deciding where to stay.",
-                    },
-                    {
-                      icon: Sparkles,
-                      title: "Find your kind of comfort",
-                      description:
-                        "Compare amenities and nightly prices in one place.",
-                    },
-                    {
-                      icon: Compass,
-                      title: "Discover somewhere new",
-                      description:
-                        "Search destinations and find your next getaway.",
-                    },
-                  ].map(({ icon: Icon, title, description }) => (
-                    <div key={title} className="flex gap-4">
-                      <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-[#96764a]">
-                        <Icon size={19} strokeWidth={1.6} />
+                    <div key={item.title} className="flex gap-5">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-900">
+                        <Icon size={22} />
                       </div>
 
                       <div>
-                        <h3 className="text-sm font-semibold text-[#183c2b]">
-                          {title}
+                        <h3 className="font-serif text-xl font-semibold text-stone-900">
+                          {item.title}
                         </h3>
-                        <p className="mt-1 text-xs leading-6 text-[#858176]">
-                          {description}
+                        <p className="mt-2 text-sm leading-6 text-stone-500">
+                          {item.description}
                         </p>
                       </div>
                     </div>
-                  ))}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={scrollToCollection}
-                  className="group mt-8 inline-flex items-center gap-3 border-b border-[#183c2b] pb-2 text-sm font-semibold text-[#183c2b]"
-                >
-                  Explore the collection
-                  <ArrowRight
-                    size={16}
-                    className="transition-transform group-hover:translate-x-1"
-                  />
-                </button>
-              </motion.div>
+                  );
+                })}
+              </div>
             </div>
-          </section>
-        )}
 
-        {/* WHY VELSAKA */}
-        <section
-          id="benefits"
-          className="bg-white px-5 py-20 sm:py-24 lg:px-8 lg:py-28"
-        >
-          <div className="mx-auto max-w-7xl">
-            <motion.div {...motionProps}>
-              <div className="mx-auto max-w-2xl text-center">
-                <p className="flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[0.25em] text-[#96764a] sm:text-xs">
-                  <span className="h-px w-7 bg-[#b89a6b]" />
-                  The Velsaka difference
-                  <span className="h-px w-7 bg-[#b89a6b]" />
-                </p>
+            <div className="relative">
+              <img
+                src={CTA_IMAGE}
+                alt="Beautiful resort swimming pool"
+                loading="lazy"
+                className="h-[480px] w-full rounded-[2rem] object-cover"
+              />
 
-                <h2 className="mt-5 font-serif text-3xl font-medium tracking-tight text-[#183c2b] sm:text-5xl">
-                  Thoughtful stays. Better journeys.
-                </h2>
-
-                <p className="mt-5 text-sm leading-7 text-[#858176] sm:text-base">
-                  Everything you need to explore your options and make a more
-                  confident choice for your next journey.
-                </p>
-              </div>
-
-              <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                {[
-                  {
-                    number: "01",
-                    icon: MapPin,
-                    title: "Discover destinations",
-                    description:
-                      "Explore accommodation across destinations and find a place that suits your plans.",
-                  },
-                  {
-                    number: "02",
-                    icon: Gem,
-                    title: "Compare your options",
-                    description:
-                      "Review prices, amenities, property descriptions, and ratings before making a choice.",
-                  },
-                  {
-                    number: "03",
-                    icon: CalendarDays,
-                    title: "Plan your next stay",
-                    description:
-                      "Explore property details and continue to the relevant stay page.",
-                  },
-                ].map(({ number, icon: Icon, title, description }) => (
-                  <motion.article
-                    key={number}
-                    variants={fadeUp}
-                    whileHover={reduceMotion ? undefined : { y: -5 }}
-                    className="rounded-[24px] border border-[#ebe6dc] bg-[#faf9f6] p-7 transition-shadow hover:shadow-lg sm:p-8"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#183c2b] text-[#e0c79b]">
-                        <Icon size={22} strokeWidth={1.6} />
-                      </div>
-
-                      <span className="font-serif text-2xl text-[#d5c7ae]">
-                        {number}
-                      </span>
-                    </div>
-
-                    <h3 className="mt-7 font-serif text-2xl text-[#183c2b]">
-                      {title}
-                    </h3>
-
-                    <p className="mt-3 text-sm leading-7 text-[#858176]">
-                      {description}
+              <div className="absolute -bottom-7 -left-3 rounded-2xl bg-white p-5 shadow-xl sm:-left-7 sm:p-7">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-900">
+                    <Sparkles size={23} />
+                  </div>
+                  <div>
+                    <p className="font-serif text-xl font-semibold text-stone-900">
+                      Your next escape
                     </p>
-                  </motion.article>
-                ))}
+                    <p className="mt-1 text-xs text-stone-500">
+                      Starts with VELSAKA STAYS
+                    </p>
+                  </div>
+                </div>
               </div>
-            </motion.div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* FAVORITES */}
+      {favoriteHotels.length > 0 && (
+        <section className="bg-white py-20">
+          <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-12">
+            <div className="mb-10 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-800">
+                  Your saved collection
+                </p>
+                <h2 className="mt-2 font-serif text-3xl text-stone-900">
+                  Your favourite stays
+                </h2>
+              </div>
+
+              <Heart className="fill-rose-500 text-rose-500" size={26} />
+            </div>
+
+            <div className="grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
+              {favoriteHotels.map((hotel) => (
+                <HotelCard
+                  key={getHotelId(hotel)}
+                  hotel={hotel}
+                  onOpen={openHotel}
+                  isFavorite
+                  onFavorite={toggleFavorite}
+                />
+              ))}
+            </div>
           </div>
         </section>
+      )}
 
-        {/* FINAL CTA */}
-        <section className="relative isolate overflow-hidden bg-[#183c2b]">
-          <motion.div
-            initial={reduceMotion ? false : { scale: 1.05 }}
-            whileInView={{ scale: 1 }}
-            viewport={{ once: true }}
-            transition={{ duration: 1.3 }}
-            className="absolute inset-0 -z-20"
+      {/* CTA */}
+      <section className="relative overflow-hidden bg-emerald-950 py-24">
+        <div className="absolute inset-0 opacity-20">
+          <img
+            src={CTA_IMAGE}
+            alt=""
+            className="h-full w-full object-cover"
+          />
+        </div>
+
+        <div className="absolute inset-0 bg-emerald-950/80" />
+
+        <div className="relative mx-auto max-w-4xl px-5 text-center">
+          <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-full border border-amber-200/40 text-amber-200">
+            <CalendarDays size={25} />
+          </div>
+
+          <p className="text-xs font-bold uppercase tracking-[0.25em] text-amber-200">
+            Your journey begins here
+          </p>
+
+          <h2 className="mt-5 font-serif text-4xl font-medium leading-tight text-white sm:text-5xl lg:text-6xl">
+            Make room for
+            <br />
+            <span className="italic text-amber-200">new experiences.</span>
+          </h2>
+
+          <p className="mx-auto mt-6 max-w-xl text-sm leading-7 text-white/70">
+            Your next memorable stay is just a few clicks away. Explore our
+            collection and find a place that feels right.
+          </p>
+
+          <button
+            onClick={showAllStays}
+            className="mt-9 inline-flex items-center gap-3 rounded-full bg-amber-200 px-8 py-4 text-sm font-bold text-emerald-950 transition hover:bg-amber-100"
           >
-            <img
-              src={CTA_IMAGE}
-              alt=""
-              loading="lazy"
-              onError={(event) => {
-                event.currentTarget.onerror = null;
-                event.currentTarget.src = FALLBACK_IMAGE;
-              }}
-              className="h-full w-full object-cover"
-            />
-          </motion.div>
-
-          <div className="absolute inset-0 -z-10 bg-[#10291d]/85" />
-
-          <motion.div
-            initial={reduceMotion ? false : { opacity: 0, y: 25 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.3 }}
-            transition={{ duration: 0.7 }}
-            className="mx-auto max-w-4xl px-5 py-20 text-center sm:py-24 lg:py-28"
-          >
-            <motion.div
-              animate={reduceMotion ? {} : { y: [0, -5, 0] }}
-              transition={{
-                duration: 3.5,
-                repeat: Infinity,
-                ease: "easeInOut",
-              }}
-              className="mx-auto grid h-14 w-14 place-items-center rounded-full border border-white/20 bg-white/10 text-[#e0c79b] backdrop-blur"
-            >
-              <Flower2 size={25} strokeWidth={1.5} />
-            </motion.div>
-
-            <p className="mt-7 text-[10px] font-bold uppercase tracking-[0.3em] text-[#e0c79b] sm:text-xs">
-              Every journey deserves a beautiful beginning
-            </p>
-
-            <h2 className="mt-5 font-serif text-4xl font-medium leading-tight text-white sm:text-6xl">
-              Somewhere wonderful
-              <br />
-              is waiting for you.
-            </h2>
-
-            <p className="mx-auto mt-5 max-w-xl text-sm leading-7 text-white/70 sm:text-base">
-              Explore the collection and find the place that feels right for
-              your next escape.
-            </p>
-
-            <motion.button
-              type="button"
-              whileHover={reduceMotion ? undefined : { y: -3 }}
-              whileTap={reduceMotion ? undefined : { scale: 0.97 }}
-              onClick={scrollToCollection}
-              className="group mt-8 inline-flex items-center gap-3 rounded-full bg-[#d8bd8b] px-7 py-4 text-sm font-semibold text-[#183c2b] transition hover:bg-white"
-            >
-              Find your next stay
-              <ArrowRight
-                size={17}
-                className="transition-transform group-hover:translate-x-1"
-              />
-            </motion.button>
-          </motion.div>
-        </section>
-      </main>
+            Discover your stay
+            <ArrowRight size={17} />
+          </button>
+        </div>
+      </section>
 
       <Footer />
     </div>
   );
+}
+
+// Small local icon component used in the benefits section.
+function HeadphonesIcon({ size = 22 }) {
+  return <ShieldCheck size={size} />;
 }

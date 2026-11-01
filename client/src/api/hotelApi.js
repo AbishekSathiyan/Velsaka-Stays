@@ -1,87 +1,143 @@
 
 import axios from "axios";
+import { auth } from "../firebase/firebaseConfig";
 
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api"
-).replace(/\/+$/, "");
+// API configuration
+const API_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
 
-// Axios instance for POST, PUT, PATCH, DELETE and other API requests
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_URL,
+  headers: {
+    "Content-Type": "application/json",
+  },
+  timeout: 30000,
   withCredentials: true,
 });
 
-// Shared GET request helper for hotel endpoints
-async function apiRequest(endpoint, params = {}) {
-  const query = new URLSearchParams();
+// ==========================================
+// FIREBASE AUTHENTICATION INTERCEPTOR
+// ==========================================
 
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") {
-      query.set(key, String(value));
+api.interceptors.request.use(
+  async (config) => {
+    try {
+      const currentUser = auth.currentUser;
+
+      if (currentUser) {
+        const token = await currentUser.getIdToken();
+
+        config.headers = config.headers || {};
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+
+      return config;
+    } catch (error) {
+      console.error("Firebase token error:", error);
+      return Promise.reject(error);
     }
-  });
+  },
+  (error) => Promise.reject(error)
+);
 
-  const queryString = query.toString();
-  const url = `${API_BASE_URL}${endpoint}${
-    queryString ? `?${queryString}` : ""
-  }`;
+// ==========================================
+// RESPONSE NORMALIZER
+// ==========================================
 
-  const response = await fetch(url, {
-    credentials: "include",
-  });
-
-  let result;
-
-  try {
-    result = await response.json();
-  } catch {
-    throw new Error("The server returned an invalid response.");
+const normalizeHotels = (response) => {
+  // Backend: { success: true, data: [...] }
+  if (Array.isArray(response?.data)) {
+    return response.data;
   }
 
-  if (!response.ok) {
-    throw new Error(
-      result.message || `Request failed with status ${response.status}`
-    );
+  // Backend: { success: true, hotels: [...] }
+  if (Array.isArray(response?.hotels)) {
+    return response.hotels;
   }
 
-  return result;
-}
-
-// GET /api/hotels
-export async function getHotels(params = {}) {
-  const result = await apiRequest("/hotels", params);
-
-  if (Array.isArray(result)) return result;
-  if (Array.isArray(result.data)) return result.data;
-  if (Array.isArray(result.hotels)) return result.hotels;
-  if (Array.isArray(result.data?.hotels)) return result.data.hotels;
-
-  return [];
-}
-
-// GET /api/hotels/nearby
-export async function getNearbyHotels(params = {}) {
-  const result = await apiRequest("/hotels/nearby", params);
-
-  if (Array.isArray(result)) return result;
-  if (Array.isArray(result.data)) return result.data;
-  if (Array.isArray(result.hotels)) return result.hotels;
-
-  return [];
-}
-
-// GET /api/hotels/:id
-export async function getHotelById(id) {
-  if (!id) {
-    throw new Error("Hotel ID is required.");
+  // Direct array: [...]
+  if (Array.isArray(response)) {
+    return response;
   }
 
-  const result = await apiRequest(
-    `/hotels/${encodeURIComponent(id)}`
+  // Nested response: { data: { hotels: [...] } }
+  if (Array.isArray(response?.data?.hotels)) {
+    return response.data.hotels;
+  }
+
+  console.error("Unexpected hotels API response:", response);
+
+  throw new Error(
+    "Invalid hotels data received from server. Expected an array."
   );
+};
 
-  return result.data?.hotel ?? result.data ?? result.hotel ?? result;
-}
+// ==========================================
+// GET ALL HOTELS
+// ==========================================
 
-// Default Axios export used by BookingConfirm.jsx
+export const getHotels = async (params = {}) => {
+  try {
+    const response = await api.get("/hotels", { params });
+
+    return normalizeHotels(response.data);
+  } catch (error) {
+    console.error("GET HOTELS API ERROR:", {
+      message: error.message,
+      status: error.response?.status,
+      response: error.response?.data,
+    });
+
+    throw error;
+  }
+};
+
+// ==========================================
+// GET HOTEL BY ID
+// ==========================================
+
+export const getHotelById = async (id) => {
+  try {
+    if (!id) {
+      throw new Error("Hotel ID is required.");
+    }
+
+    const response = await api.get(`/hotels/${id}`);
+
+    return response.data;
+  } catch (error) {
+    console.error("GET HOTEL BY ID ERROR:", {
+      message: error.message,
+      status: error.response?.status,
+      response: error.response?.data,
+    });
+
+    throw error;
+  }
+};
+
+// ==========================================
+// GET NEARBY HOTELS
+// ==========================================
+
+export const getNearbyHotels = async (params = {}) => {
+  try {
+    const response = await api.get("/hotels/nearby", { params });
+
+    return normalizeHotels(response.data);
+  } catch (error) {
+    console.error("GET NEARBY HOTELS ERROR:", {
+      message: error.message,
+      status: error.response?.status,
+      response: error.response?.data,
+    });
+
+    throw error;
+  }
+};
+
+// ==========================================
+// EXPORT AXIOS INSTANCE
+// ==========================================
+
 export default api;

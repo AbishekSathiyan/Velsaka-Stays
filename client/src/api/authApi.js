@@ -1,51 +1,31 @@
-import axios from "axios";
+import api from "./axios";
+import { auth } from "../firebase/firebaseConfig";
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api",
-  withCredentials: true,
-  headers: {
-    "Content-Type": "application/json",
-  },
-  timeout: 15000,
-});
+// Get current Firebase user
+export const getCurrentUser = () => {
+  return auth.currentUser;
+};
 
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem("vstays_token");
-
-    if (token) {
-      config.headers = config.headers || {};
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-
-    return config;
-  },
-  (error) => Promise.reject(error),
-);
-
-export const registerUser = async (userData) => {
-  const response = await api.post("/auth/register", userData);
+// Sync Firebase user with MongoDB
+export const syncUser = async (userData = {}) => {
+  const response = await api.post("/auth/sync", userData);
   return response.data;
 };
 
-export const loginUser = async (credentials) => {
-  const response = await api.post("/auth/login", credentials);
-  return response.data;
-};
-
-export const getCurrentUser = async () => {
+// Get MongoDB profile
+export const getMe = async () => {
   const response = await api.get("/auth/me");
   return response.data;
 };
 
+// Update profile
 export const updateProfile = async (profileData) => {
-  const response = await api.patch("/auth/me", profileData);
+  const response = await api.put("/auth/profile", profileData);
   return response.data;
 };
 
+// Logout
 export const logoutUser = async () => {
   const response = await api.post("/auth/logout");
   return response.data;
 };
-
-export default api;

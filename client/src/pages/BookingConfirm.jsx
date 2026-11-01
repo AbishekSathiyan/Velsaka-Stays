@@ -1,6 +1,6 @@
-
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+
 import {
   ArrowLeft,
   CalendarDays,
@@ -14,11 +14,17 @@ import {
   UserRound,
   Mail,
   Phone,
+  AlertCircle,
 } from "lucide-react";
 
 import Header from "../components/Header";
 import api from "../api/hotelApi";
-import { getCurrentUser } from "../api/authApi";
+import { auth } from "../firebase/firebaseConfig";
+import { useAuth } from "../context/AuthContext";
+
+// ======================================
+// HELPERS
+// ======================================
 
 const money = (value) => {
   const amount = Number(value);
@@ -50,24 +56,40 @@ const formatDate = (value) => {
   });
 };
 
-const getProfileFromResponse = (result) =>
-  result?.data?.user ??
-  result?.data?.data?.user ??
-  result?.user ??
-  null;
+const getProfileFromResponse = (result) => {
+  const responseData = result?.data ?? result;
+
+  return (
+    responseData?.user ??
+    responseData?.data?.user ??
+    responseData?.data ??
+    responseData?.profile ??
+    null
+  );
+};
 
 const getErrorMessage = (err, fallback) => {
+  const status = err?.response?.status;
+
   const message =
     err?.response?.data?.message ||
     err?.response?.data?.error ||
     err?.message;
 
-  if (err?.response?.status === 401) {
-    return "Your login session is missing or expired. Please log in again, then retry your booking.";
+  if (status === 401) {
+    return "Your login session has expired. Please log in again.";
   }
 
-  if (err?.response?.status === 403) {
+  if (status === 403) {
     return message || "You are not authorized to complete this booking.";
+  }
+
+  if (status === 404) {
+    return "The requested API endpoint was not found. Check your backend routes.";
+  }
+
+  if (!err?.response && err?.request) {
+    return "Cannot connect to the server. Check your internet connection and backend.";
   }
 
   return message || fallback;
@@ -104,6 +126,7 @@ const loadRazorpayScript = () =>
     }
 
     const script = document.createElement("script");
+
     script.src = scriptUrl;
     script.async = true;
     script.onload = () => resolve(Boolean(window.Razorpay));
@@ -112,11 +135,26 @@ const loadRazorpayScript = () =>
     document.body.appendChild(script);
   });
 
+// ======================================
+// BOOKING CONFIRM COMPONENT
+// ======================================
+
 export default function BookingConfirm() {
   const navigate = useNavigate();
   const { state } = useLocation();
 
   const booking = state?.booking ?? state;
+
+  // Firebase + MongoDB authentication context
+  const {
+    user: authUser,
+    loading: authLoading,
+    authError,
+  } = useAuth();
+
+  // ======================================
+  // STATES
+  // ======================================
 
   const [customer, setCustomer] = useState({
     name: "",
@@ -126,14 +164,20 @@ export default function BookingConfirm() {
 
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileError, setProfileError] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(null);
+
+  // ======================================
+  // BOOKING DATA
+  // ======================================
 
   const hotelName = booking?.hotelName;
   const hotelId = booking?.hotelId;
   const checkIn = booking?.checkIn;
   const checkOut = booking?.checkOut;
+
   const guests = Number(booking?.guests);
   const nights = Number(booking?.nights);
   const pricePerNight = Number(booking?.pricePerNight);
@@ -154,49 +198,165 @@ export default function BookingConfirm() {
     Number.isFinite(totalAmount) &&
     totalAmount > 0;
 
-  // Load the signed-in user's profile.
+  // ======================================
+  // FIREBASE TOKEN
+  // ======================================
+
+  const getAuthHeaders = async () => {
+    // Wait for AuthContext synchronization.
+    if (authLoading) {
+      throw new Error(
+        "Authentication is still loading. Please wait."
+      );
+    }
+
+    // AuthContext user is the MongoDB profile.
+    if (!authUser) {
+      throw new Error(
+        authError ||
+          "Your login session is unavailable. Please log in again."
+      );
+    }
+
+    // Firebase user provides the actual ID token.
+    const firebaseUser = auth.currentUser;
+
+    if (!firebaseUser) {
+      throw new Error(
+        "Firebase session is unavailable. Please log in again."
+      );
+    }
+
+    const token = await firebaseUser.getIdToken();
+
+    return {
+      Authorization: `Bearer ${token}`,
+    };
+  };
+
+  // ======================================
+  // LOAD USER PROFILE
+  // ======================================
+
   useEffect(() => {
     let active = true;
 
-    async function fetchProfile() {
+    const fetchProfile = async () => {
+      // Wait until Firebase authentication and
+      // MongoDB user synchronization are completed.
+      if (authLoading) {
+        return;
+      }
+
+      // User is not authenticated.
+      if (!authUser) {
+        if (active) {
+          setProfileLoading(false);
+          setProfileError(
+            authError ||
+              "Please log in to continue with your booking."
+          );
+        }
+
+        return;
+      }
+
       try {
+        setProfileLoading(true);
         setProfileError("");
 
-        const result = await getCurrentUser();
-        const profile = getProfileFromResponse(result);
+        const headers = await getAuthHeaders();
+
+        const response = await api.get("/auth/me", {
+          headers,
+        });
+
+        console.log(
+          "PROFILE API RESPONSE:",
+          response.data
+        );
+
+        const profile = getProfileFromResponse(response);
 
         if (!profile) {
-          throw new Error("Profile details were not returned.");
+          throw new Error(
+            "Profile details were not returned by the server."
+          );
         }
 
         if (active) {
           setCustomer({
-            name: profile.name || "",
-            email: profile.email || "",
-            phone: profile.phone || "",
+            name:
+              profile.name ||
+              profile.displayName ||
+              authUser.name ||
+              "",
+
+            email:
+              profile.email ||
+              authUser.email ||
+              "",
+
+            phone:
+              profile.phone ||
+              profile.phoneNumber ||
+              authUser.phone ||
+              authUser.phoneNumber ||
+              "",
           });
         }
       } catch (err) {
-        if (!active) return;
+        console.error("PROFILE LOADING ERROR:", {
+          message: err?.message,
+          status: err?.response?.status,
+          response: err?.response?.data,
+          url: err?.config?.url,
+        });
 
-        setProfileError(
-          err?.response?.status === 401
-            ? "Please log in to load your saved profile. You can enter your details manually, but payment requires a valid login session."
-            : "Unable to load your profile. Check your login session or enter your details manually."
-        );
+        if (active) {
+          setProfileError(
+            getErrorMessage(
+              err,
+              "Unable to load your profile. Enter your details manually."
+            )
+          );
+
+          // Fallback to MongoDB user data.
+          setCustomer((previous) => ({
+            name:
+              previous.name ||
+              authUser.name ||
+              "",
+
+            email:
+              previous.email ||
+              authUser.email ||
+              "",
+
+            phone:
+              previous.phone ||
+              authUser.phone ||
+              authUser.phoneNumber ||
+              "",
+          }));
+        }
       } finally {
         if (active) {
           setProfileLoading(false);
         }
       }
-    }
+    };
 
     fetchProfile();
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [authUser, authLoading, authError]);
+
+  // ======================================
+  // UPDATE CUSTOMER DETAILS
+  // ======================================
 
   const updateCustomer = (event) => {
     const { name, value } = event.target;
@@ -205,11 +365,17 @@ export default function BookingConfirm() {
       ...previous,
       [name]: value,
     }));
+
+    setError("");
   };
 
-  // Create an authenticated payment order and open Razorpay.
+  // ======================================
+  // HANDLE PAYMENT
+  // ======================================
+
   const handlePayment = async (event) => {
     event.preventDefault();
+
     setError("");
 
     if (!isValid) {
@@ -234,74 +400,87 @@ export default function BookingConfirm() {
     }
 
     if (!/^[6-9]\d{9}$/.test(phone)) {
-      setError("Enter a valid 10-digit Indian mobile number.");
+      setError(
+        "Enter a valid 10-digit Indian mobile number."
+      );
       return;
     }
 
     setLoading(true);
 
     try {
-      // Check that the user still has a valid login session.
-      try {
-        const profileResponse = await getCurrentUser();
-        const profile = getProfileFromResponse(profileResponse);
+      // Get a fresh Firebase authentication token.
+      const headers = await getAuthHeaders();
 
-        if (!profile?.id && !profile?._id) {
-          throw new Error("Your login session could not be verified.");
-        }
-      } catch (authError) {
-        if (authError?.response?.status === 401) {
-          throw new Error(
-            "Please log in again before booking. Your login session is missing or expired."
-          );
-        }
-
-        throw authError;
-      }
-
+      // Load Razorpay checkout script.
       const scriptLoaded = await loadRazorpayScript();
 
       if (!scriptLoaded || !window.Razorpay) {
         throw new Error(
-          "Razorpay could not load. Check your internet connection and try again."
+          "Razorpay could not load. Check your internet connection."
         );
       }
+
+      // ======================================
+      // CREATE PAYMENT ORDER
+      // ======================================
 
       const orderResponse = await api.post(
         "/payments/create-order",
         {
           hotelId,
+
           customer: {
             name,
             email,
             phone,
           },
+
           checkIn,
           checkOut,
           guests,
         },
         {
-          withCredentials: true,
+          headers,
         }
       );
 
-      const data = orderResponse.data?.data ?? orderResponse.data;
+      console.log(
+        "ORDER RESPONSE:",
+        orderResponse.data
+      );
+
+      const data =
+        orderResponse.data?.data ??
+        orderResponse.data;
+
       const order = data?.order;
       const bookingId = data?.bookingId;
       const keyId = data?.keyId;
 
-      if (!data?.success || !order?.id || !bookingId || !keyId) {
+      if (
+        !data?.success ||
+        !order?.id ||
+        !bookingId ||
+        !keyId
+      ) {
         throw new Error(
           data?.message ||
-            "The server did not return the required payment details."
+            "The server did not return valid payment details."
         );
       }
 
+      // ======================================
+      // RAZORPAY CHECKOUT
+      // ======================================
+
       const razorpay = new window.Razorpay({
         key: keyId,
+
         order_id: order.id,
         amount: order.amount,
         currency: order.currency || "INR",
+
         name: "VELSAKA STAYS",
         description: `Hotel booking - ${hotelName}`,
 
@@ -326,26 +505,43 @@ export default function BookingConfirm() {
           },
         },
 
+        // ======================================
+        // PAYMENT SUCCESS CALLBACK
+        // ======================================
+
         handler: async (paymentResponse) => {
           try {
+            // Get a fresh token before verification.
+            const verifyHeaders =
+              await getAuthHeaders();
+
             const verifyResponse = await api.post(
               "/payments/verify",
               {
                 bookingId,
+
                 razorpay_order_id:
                   paymentResponse.razorpay_order_id,
+
                 razorpay_payment_id:
                   paymentResponse.razorpay_payment_id,
+
                 razorpay_signature:
                   paymentResponse.razorpay_signature,
               },
               {
-                withCredentials: true,
+                headers: verifyHeaders,
               }
             );
 
+            console.log(
+              "PAYMENT VERIFICATION:",
+              verifyResponse.data
+            );
+
             const verificationData =
-              verifyResponse.data?.data ?? verifyResponse.data;
+              verifyResponse.data?.data ??
+              verifyResponse.data;
 
             if (!verificationData?.success) {
               throw new Error(
@@ -356,14 +552,20 @@ export default function BookingConfirm() {
 
             setSuccess({
               bookingId,
+
               paymentId:
                 paymentResponse.razorpay_payment_id,
             });
           } catch (verificationError) {
+            console.error(
+              "PAYMENT VERIFICATION ERROR:",
+              verificationError
+            );
+
             setError(
               getErrorMessage(
                 verificationError,
-                "Unable to verify payment. Keep your payment ID and contact support."
+                "Unable to verify payment. Save your payment ID and contact support."
               )
             );
           } finally {
@@ -372,7 +574,16 @@ export default function BookingConfirm() {
         },
       });
 
+      // ======================================
+      // PAYMENT FAILED
+      // ======================================
+
       razorpay.on("payment.failed", (response) => {
+        console.error(
+          "RAZORPAY PAYMENT FAILED:",
+          response.error
+        );
+
         setError(
           response.error?.description ||
             "Payment failed. Please try again."
@@ -383,6 +594,11 @@ export default function BookingConfirm() {
 
       razorpay.open();
     } catch (paymentError) {
+      console.error(
+        "PAYMENT ERROR:",
+        paymentError
+      );
+
       setError(
         getErrorMessage(
           paymentError,
@@ -394,18 +610,25 @@ export default function BookingConfirm() {
     }
   };
 
+  // ======================================
+  // INVALID BOOKING
+  // ======================================
+
   if (!booking || !isValid) {
     return (
       <>
         <Header />
+
         <main className="flex min-h-screen items-center justify-center bg-[#faf9f6] px-5 py-10">
           <section className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm">
             <h1 className="text-2xl font-bold text-[#183c2b]">
               No valid booking selected
             </h1>
+
             <p className="mt-3 text-sm text-gray-500">
               Please select a hotel and valid travel dates first.
             </p>
+
             <button
               type="button"
               onClick={() => navigate("/")}
@@ -419,10 +642,15 @@ export default function BookingConfirm() {
     );
   }
 
+  // ======================================
+  // PAYMENT SUCCESS
+  // ======================================
+
   if (success) {
     return (
       <>
         <Header />
+
         <main className="flex min-h-screen items-center justify-center bg-[#faf9f6] px-4 py-8">
           <section className="w-full max-w-lg rounded-3xl bg-white p-7 text-center shadow-sm sm:p-9">
             <CheckCircle2
@@ -435,24 +663,30 @@ export default function BookingConfirm() {
             </h1>
 
             <p className="mt-2 text-sm text-gray-500">
-              Your payment has been verified.
+              Your payment has been verified successfully.
             </p>
 
             <div className="mt-6 space-y-3 rounded-2xl bg-[#f7f5ef] p-4 text-left text-sm">
               <p>
-                <span className="font-semibold">Hotel: </span>
-                {hotelName}
+                <strong>Hotel:</strong> {hotelName}
               </p>
+
               <p>
-                <span className="font-semibold">Booking ID: </span>
-                <span className="break-all">{success.bookingId}</span>
+                <strong>Booking ID:</strong>{" "}
+                <span className="break-all">
+                  {success.bookingId}
+                </span>
               </p>
+
               <p>
-                <span className="font-semibold">Payment ID: </span>
-                <span className="break-all">{success.paymentId}</span>
+                <strong>Payment ID:</strong>{" "}
+                <span className="break-all">
+                  {success.paymentId}
+                </span>
               </p>
+
               <p>
-                <span className="font-semibold">Total: </span>
+                <strong>Total:</strong>{" "}
                 {money(totalAmount)}
               </p>
             </div>
@@ -478,12 +712,19 @@ export default function BookingConfirm() {
     );
   }
 
+  // ======================================
+  // MAIN CHECKOUT PAGE
+  // ======================================
+
   return (
     <>
       <Header />
 
       <main className="min-h-screen bg-[#faf9f6] px-4 py-5 sm:px-6 sm:py-7">
         <div className="mx-auto max-w-6xl">
+
+          {/* BACK BUTTON */}
+
           <button
             type="button"
             onClick={() => navigate(-1)}
@@ -493,14 +734,18 @@ export default function BookingConfirm() {
             Back
           </button>
 
+          {/* PAGE HEADER */}
+
           <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold tracking-[0.2em] text-[#9b8158]">
                 VELSAKA STAYS
               </p>
+
               <h1 className="mt-1 text-2xl font-bold text-[#183c2b] sm:text-3xl">
                 Confirm your booking
               </h1>
+
               <p className="mt-1 text-sm text-gray-500">
                 Review your stay and contact details.
               </p>
@@ -513,6 +758,11 @@ export default function BookingConfirm() {
           </header>
 
           <div className="grid items-start gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+
+            {/* ======================================
+                BOOKING SUMMARY
+            ====================================== */}
+
             <section className="rounded-2xl border border-black/5 bg-white p-5 shadow-sm sm:p-6">
               <h2 className="text-lg font-bold text-gray-900">
                 Booking summary
@@ -524,26 +774,27 @@ export default function BookingConfirm() {
                     size={20}
                     className="mt-1 shrink-0 text-[#9b8158]"
                   />
+
                   <div className="min-w-0">
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
                       Selected hotel
                     </p>
+
                     <h3 className="mt-1 break-words text-lg font-bold text-[#183c2b]">
                       {hotelName}
                     </h3>
-                    <p className="mt-1 break-all text-xs text-gray-500">
-                      Hotel ID: {hotelId}
-                    </p>
                   </div>
                 </div>
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3">
+
                 <div className="rounded-xl border border-gray-100 p-3">
                   <div className="flex items-center gap-2 text-xs text-gray-500">
                     <CalendarDays size={15} />
                     Check-in
                   </div>
+
                   <p className="mt-2 text-sm font-bold">
                     {formatDate(checkIn)}
                   </p>
@@ -554,6 +805,7 @@ export default function BookingConfirm() {
                     <CalendarDays size={15} />
                     Check-out
                   </div>
+
                   <p className="mt-2 text-sm font-bold">
                     {formatDate(checkOut)}
                   </p>
@@ -564,6 +816,7 @@ export default function BookingConfirm() {
                     <Users size={15} />
                     Guests
                   </div>
+
                   <p className="mt-2 text-sm font-bold">
                     {guests} {guests === 1 ? "guest" : "guests"}
                   </p>
@@ -574,25 +827,32 @@ export default function BookingConfirm() {
                     <Moon size={15} />
                     Duration
                   </div>
+
                   <p className="mt-2 text-sm font-bold">
                     {nights} {nights === 1 ? "night" : "nights"}
                   </p>
                 </div>
+
               </div>
+
+              {/* PRICE DETAILS */}
 
               <div className="mt-5 border-t border-dashed border-gray-200 pt-4">
                 <div className="flex justify-between gap-3 text-sm text-gray-500">
                   <span>
-                    {money(pricePerNight)} × {nights}{" "}
-                    {nights === 1 ? "night" : "nights"}
+                    {money(pricePerNight)} × {nights} nights
                   </span>
+
                   <span className="font-medium text-gray-800">
                     {money(totalAmount)}
                   </span>
                 </div>
 
                 <div className="mt-3 flex items-center justify-between gap-3">
-                  <span className="font-bold">Total amount</span>
+                  <span className="font-bold">
+                    Total amount
+                  </span>
+
                   <span className="text-2xl font-bold text-[#183c2b]">
                     {money(totalAmount)}
                   </span>
@@ -604,7 +864,12 @@ export default function BookingConfirm() {
               </div>
             </section>
 
+            {/* ======================================
+                GUEST DETAILS
+            ====================================== */}
+
             <section className="rounded-2xl border border-black/5 bg-white p-5 shadow-sm sm:p-6">
+
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-lg font-bold text-gray-900">
                   Guest details
@@ -617,23 +882,43 @@ export default function BookingConfirm() {
                 )}
               </div>
 
+              {/* PROFILE LOADING */}
+
               {profileLoading && (
                 <p className="mt-2 flex items-center gap-2 text-sm text-gray-500">
-                  <LoaderCircle size={15} className="animate-spin" />
+                  <LoaderCircle
+                    size={15}
+                    className="animate-spin"
+                  />
                   Loading profile details...
                 </p>
               )}
 
+              {/* PROFILE ERROR */}
+
               {profileError && (
-                <p
+                <div
                   role="status"
-                  className="mt-3 rounded-lg bg-amber-50 p-3 text-sm leading-5 text-amber-800"
+                  className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm leading-5 text-amber-800"
                 >
-                  {profileError}
-                </p>
+                  <AlertCircle
+                    size={17}
+                    className="mt-0.5 shrink-0"
+                  />
+
+                  <span>{profileError}</span>
+                </div>
               )}
 
-              <form onSubmit={handlePayment} className="mt-4 space-y-4">
+              {/* CUSTOMER FORM */}
+
+              <form
+                onSubmit={handlePayment}
+                className="mt-4 space-y-4"
+              >
+
+                {/* NAME */}
+
                 <div>
                   <label
                     htmlFor="customer-name"
@@ -641,8 +926,13 @@ export default function BookingConfirm() {
                   >
                     Full name
                   </label>
+
                   <div className="flex items-center gap-3 rounded-xl border border-gray-200 px-3 focus-within:border-[#183c2b] focus-within:ring-2 focus-within:ring-[#183c2b]/10">
-                    <UserRound size={17} className="shrink-0 text-[#9b8158]" />
+                    <UserRound
+                      size={17}
+                      className="shrink-0 text-[#9b8158]"
+                    />
+
                     <input
                       id="customer-name"
                       name="name"
@@ -659,6 +949,8 @@ export default function BookingConfirm() {
                   </div>
                 </div>
 
+                {/* EMAIL */}
+
                 <div>
                   <label
                     htmlFor="customer-email"
@@ -666,8 +958,13 @@ export default function BookingConfirm() {
                   >
                     Email address
                   </label>
+
                   <div className="flex items-center gap-3 rounded-xl border border-gray-200 px-3 focus-within:border-[#183c2b] focus-within:ring-2 focus-within:ring-[#183c2b]/10">
-                    <Mail size={17} className="shrink-0 text-[#9b8158]" />
+                    <Mail
+                      size={17}
+                      className="shrink-0 text-[#9b8158]"
+                    />
+
                     <input
                       id="customer-email"
                       name="email"
@@ -683,6 +980,8 @@ export default function BookingConfirm() {
                   </div>
                 </div>
 
+                {/* PHONE */}
+
                 <div>
                   <label
                     htmlFor="customer-phone"
@@ -690,8 +989,13 @@ export default function BookingConfirm() {
                   >
                     Mobile number
                   </label>
+
                   <div className="flex items-center gap-3 rounded-xl border border-gray-200 px-3 focus-within:border-[#183c2b] focus-within:ring-2 focus-within:ring-[#183c2b]/10">
-                    <Phone size={17} className="shrink-0 text-[#9b8158]" />
+                    <Phone
+                      size={17}
+                      className="shrink-0 text-[#9b8158]"
+                    />
+
                     <input
                       id="customer-phone"
                       name="phone"
@@ -708,6 +1012,8 @@ export default function BookingConfirm() {
                   </div>
                 </div>
 
+                {/* PAYMENT ERROR */}
+
                 {error && (
                   <div
                     role="alert"
@@ -717,24 +1023,32 @@ export default function BookingConfirm() {
                   </div>
                 )}
 
+                {/* SECURITY MESSAGE */}
+
                 <div className="flex items-start gap-2 rounded-xl bg-[#f7f5ef] p-3 text-xs leading-5 text-gray-600">
                   <ShieldCheck
                     size={17}
                     className="mt-0.5 shrink-0 text-[#183c2b]"
                   />
+
                   <p>
                     Your payment is verified by the server before your booking is confirmed.
                   </p>
                 </div>
 
+                {/* PAY BUTTON */}
+
                 <button
                   type="submit"
-                  disabled={loading || profileLoading}
+                  disabled={loading || profileLoading || authLoading}
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#183c2b] px-5 py-3.5 font-bold text-white transition hover:bg-[#28543e] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loading ? (
                     <>
-                      <LoaderCircle size={19} className="animate-spin" />
+                      <LoaderCircle
+                        size={19}
+                        className="animate-spin"
+                      />
                       Processing...
                     </>
                   ) : (
@@ -748,6 +1062,7 @@ export default function BookingConfirm() {
                 <p className="text-center text-xs text-gray-500">
                   Secure checkout powered by Razorpay
                 </p>
+
               </form>
             </section>
           </div>
