@@ -1,10 +1,20 @@
-
 const express = require("express");
-const authMiddleware = require("../middleware/authmiddleware");
-const bookingController = require("../controllers/bookingController");
-
 const router = express.Router();
 
-router.get("/my", authMiddleware, bookingController.getMyBookings);
+const {
+  verifyFirebaseToken,
+  requireDbUser,
+} = require("../middleware/authMiddleware");
+
+const {
+  getMyBookings,
+} = require("../controllers/bookingController");
+
+router.get(
+  "/my",
+  verifyFirebaseToken,
+  requireDbUser,
+  getMyBookings
+);
 
 module.exports = router;

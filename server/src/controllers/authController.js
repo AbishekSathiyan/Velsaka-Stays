@@ -1,200 +1,133 @@
-
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
-const COOKIE_NAME = "vstays_token";
-const TOKEN_MAX_AGE = 24 * 60 * 60 * 1000;
+// Format user response
+const formatUser = (user) => ({
+  id: user._id,
+  firebaseUid: user.firebaseUid,
+  name: user.name,
+  email: user.email,
+  phone: user.phone || "",
+  role: user.role,
+});
 
-function getCookieOptions() {
-  const sameSite = process.env.COOKIE_SAME_SITE || "lax";
+// ======================================
+// SYNC FIREBASE USER
+// ======================================
 
-  return {
-    httpOnly: true,
-    secure:
-      process.env.NODE_ENV === "production" ||
-      sameSite === "none",
-    sameSite,
-    path: "/",
-    maxAge: TOKEN_MAX_AGE,
-  };
-}
-
-function createToken(user) {
-  if (!process.env.JWT_SECRET) {
-    throw new Error("JWT_SECRET is not configured");
-  }
-
-  return jwt.sign(
-    {
-      userId: user._id.toString(),
-      role: user.role,
-    },
-    process.env.JWT_SECRET,
-    {
-      expiresIn: process.env.JWT_EXPIRES_IN || "1d",
-    }
-  );
-}
-
-function formatUser(user) {
-  return {
-    id: user._id,
-    name: user.name,
-    email: user.email,
-    phone: user.phone || "",
-    role: user.role,
-  };
-}
-
-function sendAuthResponse(res, user, statusCode = 200) {
-  const token = createToken(user);
-
-  res.cookie(COOKIE_NAME, token, getCookieOptions());
-
-  return res.status(statusCode).json({
-    success: true,
-    message: "Authentication successful",
-    data: {
-      user: formatUser(user),
-    },
-  });
-}
-
-// REGISTER
-exports.register = async (req, res, next) => {
+exports.syncUser = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
+    const {
+      uid,
+      email,
+      name: firebaseName,
+      emailVerified,
+    } = req.user;
 
-    if (
-      typeof name !== "string" ||
-      typeof email !== "string" ||
-      typeof password !== "string"
-    ) {
+    const { name, phone } = req.body;
+
+    if (!uid || !email) {
       return res.status(400).json({
         success: false,
-        message: "Name, email and password are required.",
+        message: "Firebase user information is incomplete.",
       });
     }
 
-    const cleanName = name.trim();
     const cleanEmail = email.trim().toLowerCase();
 
-    if (cleanName.length < 2 || cleanName.length > 80) {
+    let user = await User.findOne({
+      firebaseUid: uid,
+    });
+
+    if (!user) {
+      user = await User.findOne({
+        email: cleanEmail,
+      });
+
+      if (user) {
+        if (!emailVerified) {
+          return res.status(403).json({
+            success: false,
+            message: "Please verify your email before linking your account.",
+          });
+        }
+
+        user.firebaseUid = uid;
+      }
+    }
+
+    const requestedName =
+      typeof name === "string" ? name.trim() : "";
+
+    const verifiedFirebaseName =
+      typeof firebaseName === "string"
+        ? firebaseName.trim()
+        : "";
+
+    const finalName =
+      requestedName ||
+      user?.name ||
+      verifiedFirebaseName ||
+      cleanEmail.split("@")[0];
+
+    if (finalName.length < 2 || finalName.length > 80) {
       return res.status(400).json({
         success: false,
         message: "Name must be between 2 and 80 characters.",
       });
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      return res.status(400).json({
-        success: false,
-        message: "Enter a valid email address.",
-      });
-    }
-
-    if (password.length < 8 || password.length > 72) {
-      return res.status(400).json({
-        success: false,
-        message: "Password must be between 8 and 72 characters.",
-      });
-    }
-
-    const existingUser = await User.findOne({
-      email: cleanEmail,
-    });
-
-    if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        message: "Unable to register with this email address.",
-      });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 12);
-
-    const user = await User.create({
-      name: cleanName,
-      email: cleanEmail,
-      password: hashedPassword,
-    });
-
-    return sendAuthResponse(res, user, 201);
-  } catch (error) {
-    if (error.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: "Unable to register with this email address.",
-      });
-    }
-
-    next(error);
-  }
-};
-
-// LOGIN
-exports.login = async (req, res, next) => {
-  try {
-    const { email, password } = req.body;
-
-    if (
-      typeof email !== "string" ||
-      typeof password !== "string"
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required.",
-      });
-    }
-
-    const cleanEmail = email.trim().toLowerCase();
-
-    const user = await User.findOne({
-      email: cleanEmail,
-    }).select("+password");
-
     if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password.",
+      user = new User({
+        firebaseUid: uid,
+        email: cleanEmail,
+        name: finalName,
+        phone: typeof phone === "string" ? phone.trim() : "",
+        role: "user",
       });
+    } else {
+      user.firebaseUid = uid;
+      user.email = cleanEmail;
+      user.name = finalName;
+
+      if (typeof phone === "string") {
+        user.phone = phone.trim();
+      }
     }
 
-    const passwordMatches = await bcrypt.compare(
-      password,
-      user.password
-    );
-
-    if (!passwordMatches) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password.",
-      });
-    }
-
-    return sendAuthResponse(res, user);
-  } catch (error) {
-    next(error);
-  }
-};
-
-// GET CURRENT USER PROFILE
-exports.getMe = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user.userId);
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: "User account not found.",
-      });
-    }
+    await user.save();
 
     return res.status(200).json({
       success: true,
+      message: "Account synchronized successfully.",
       data: {
         user: formatUser(user),
+      },
+    });
+  } catch (error) {
+    console.error("Sync user error:", error);
+
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "Email or Firebase account already exists.",
+      });
+    }
+
+    next(error);
+  }
+};
+
+// ======================================
+// GET CURRENT USER
+// ======================================
+
+exports.getMe = async (req, res, next) => {
+  try {
+    return res.status(200).json({
+      success: true,
+      message: "Profile fetched successfully.",
+      data: {
+        user: formatUser(req.dbUser),
       },
     });
   } catch (error) {
@@ -202,12 +135,24 @@ exports.getMe = async (req, res, next) => {
   }
 };
 
-// UPDATE NAME AND PHONE NUMBER
+// ======================================
+// UPDATE PROFILE
+// ======================================
+
 exports.updateProfile = async (req, res, next) => {
   try {
     const { name, phone } = req.body;
+
+    if (!req.dbUser) {
+      return res.status(404).json({
+        success: false,
+        message: "Database user not found.",
+      });
+    }
+
     const updates = {};
 
+    // Name validation
     if (name !== undefined) {
       if (typeof name !== "string") {
         return res.status(400).json({
@@ -221,25 +166,26 @@ exports.updateProfile = async (req, res, next) => {
       if (cleanName.length < 2 || cleanName.length > 80) {
         return res.status(400).json({
           success: false,
-          message: "Name must be between 2 and 80 characters.",
+          message: "Name must contain 2 to 80 characters.",
         });
       }
 
       updates.name = cleanName;
     }
 
+    // Phone validation
     if (phone !== undefined) {
       if (typeof phone !== "string") {
         return res.status(400).json({
           success: false,
-          message: "Phone number must be a string.",
+          message: "Phone must be a string.",
         });
       }
 
       const cleanPhone = phone.trim();
 
       if (
-        cleanPhone !== "" &&
+        cleanPhone &&
         !/^[6-9]\d{9}$/.test(cleanPhone)
       ) {
         return res.status(400).json({
@@ -254,53 +200,63 @@ exports.updateProfile = async (req, res, next) => {
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Please provide a name or phone number to update.",
+        message: "No profile changes provided.",
       });
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.user.userId,
-      { $set: updates },
+    console.log("PROFILE UPDATE:", {
+      firebaseUid: req.user.uid,
+      mongoUserId: req.dbUser._id,
+      updates,
+    });
+
+    // Update MongoDB
+    const updatedUser = await User.findByIdAndUpdate(
+      req.dbUser._id,
+      {
+        $set: updates,
+      },
       {
         new: true,
         runValidators: true,
       }
     );
 
-    if (!user) {
+    if (!updatedUser) {
       return res.status(404).json({
         success: false,
-        message: "User account not found.",
+        message: "User not found.",
       });
     }
+
+    console.log("PROFILE SAVED:", {
+      database: User.db.name,
+      collection: User.collection.name,
+      userId: updatedUser._id,
+      name: updatedUser.name,
+      phone: updatedUser.phone,
+    });
 
     return res.status(200).json({
       success: true,
       message: "Profile updated successfully.",
       data: {
-        user: formatUser(user),
+        user: formatUser(updatedUser),
       },
     });
   } catch (error) {
+    console.error("Profile update error:", error);
     next(error);
   }
 };
 
+// ======================================
 // LOGOUT
+// ======================================
+
 exports.logout = (req, res) => {
-  const sameSite = process.env.COOKIE_SAME_SITE || "lax";
-
-  res.clearCookie(COOKIE_NAME, {
-    httpOnly: true,
-    secure:
-      process.env.NODE_ENV === "production" ||
-      sameSite === "none",
-    sameSite,
-    path: "/",
-  });
-
   return res.status(200).json({
     success: true,
-    message: "Logged out successfully.",
+    message: "Logout successful. Sign out from Firebase on the client.",
   });
 };

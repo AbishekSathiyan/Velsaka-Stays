@@ -1,59 +1,100 @@
+const admin = require("../config/firebaseAdmin");
+const User = require("../models/User");
 
-const jwt = require("jsonwebtoken");
+// ======================================
+// VERIFY FIREBASE ID TOKEN
+// ======================================
 
-module.exports = function authMiddleware(req, res, next) {
+exports.verifyFirebaseToken = async (req, res, next) => {
   try {
-    const cookieToken = req.cookies?.vstays_token;
-
     const authHeader = req.headers.authorization;
-    const bearerToken =
-      authHeader && authHeader.startsWith("Bearer ")
-        ? authHeader.slice(7)
-        : null;
 
-    const token = cookieToken || bearerToken;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        message: "Authorization token is required.",
+      });
+    }
+
+    const token = authHeader.substring(7).trim();
 
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: "Please log in to continue",
+        message: "Invalid authorization token.",
       });
     }
 
-    if (!process.env.JWT_SECRET) {
-      return res.status(500).json({
-        success: false,
-        message: "Authentication is not configured",
-      });
-    }
+    // Verify Firebase ID token.
+    const decodedToken = await admin.auth().verifyIdToken(token);
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    if (!decoded.userId) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid authentication token",
-      });
-    }
-
+    // Keep verified Firebase identity.
     req.user = {
-      userId: decoded.userId,
-      role: decoded.role,
+      uid: decodedToken.uid,
+      email: decodedToken.email || "",
+      emailVerified: decodedToken.email_verified || false,
     };
 
     next();
   } catch (error) {
-    if (
-      error.name === "JsonWebTokenError" ||
-      error.name === "TokenExpiredError" ||
-      error.name === "NotBeforeError"
-    ) {
+    console.error("FIREBASE TOKEN VERIFICATION ERROR:", {
+      code: error.code,
+      message: error.message,
+    });
+
+    return res.status(401).json({
+      success: false,
+      message: "Invalid or expired Firebase token.",
+    });
+  }
+};
+
+// ======================================
+// FIND MONGODB USER
+// ======================================
+
+exports.requireDbUser = async (req, res, next) => {
+  try {
+    const firebaseUid = req.user?.uid;
+
+    if (!firebaseUid) {
       return res.status(401).json({
         success: false,
-        message: "Your session is invalid or expired. Please log in again.",
+        message: "Firebase UID not found.",
       });
     }
 
-    next(error);
+    // Find user using Firebase UID.
+    const user = await User.findOne({
+      firebaseUid,
+    }).select("_id firebaseUid name email phone role");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "MongoDB user profile not found. Please synchronize your account.",
+      });
+    }
+
+    // Attach MongoDB user ID for existing controllers.
+    req.user.userId = user._id.toString();
+
+    // Keep complete MongoDB profile available too.
+    req.dbUser = user;
+
+    console.log("AUTHENTICATED USER:", {
+      firebaseUid: req.user.uid,
+      mongoUserId: req.user.userId,
+      email: req.user.email,
+    });
+
+    next();
+  } catch (error) {
+    console.error("MONGODB USER LOOKUP ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to verify your database user profile.",
+    });
   }
 };

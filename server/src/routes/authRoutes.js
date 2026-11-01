@@ -1,28 +1,41 @@
 const express = require("express");
-const rateLimit = require("express-rate-limit");
-
-const authController = require("../controllers/authController");
-const authMiddleware = require("../middleware/authmiddleware");
-
 const router = express.Router();
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
-  standardHeaders: "draft-7",
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many authentication attempts. Try again later.",
-  },
-});
+const authController = require("../controllers/authController");
 
-router.post("/register", authLimiter, authController.register);
-router.post("/login", authLimiter, authController.login);
+const {
+  verifyFirebaseToken,
+  requireDbUser,
+} = require("../middleware/authMiddleware");
 
-router.get("/me", authMiddleware, authController.getMe);
-router.patch("/me", authMiddleware, authController.updateProfile);
+// Register / Login synchronization
+router.post(
+  "/sync",
+  verifyFirebaseToken,
+  authController.syncUser
+);
 
-router.post("/logout", authController.logout);
+// Get profile
+router.get(
+  "/me",
+  verifyFirebaseToken,
+  requireDbUser,
+  authController.getMe
+);
+
+// Update profile
+router.put(
+  "/profile",
+  verifyFirebaseToken,
+  requireDbUser,
+  authController.updateProfile
+);
+
+// Logout
+router.post(
+  "/logout",
+  verifyFirebaseToken,
+  authController.logout
+);
 
 module.exports = router;

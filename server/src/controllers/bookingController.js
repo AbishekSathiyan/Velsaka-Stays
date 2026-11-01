@@ -1,7 +1,7 @@
 
 const Booking = require("../models/Booking");
 
-exports.getMyBookings = async (req, res, next) => {
+const getMyBookings = async (req, res, next) => {
   try {
     const bookings = await Booking.find({
       user: req.user.userId,
@@ -30,6 +30,10 @@ exports.getMyBookings = async (req, res, next) => {
       data,
     });
   } catch (error) {
-    next(error);
+    return next(error);
   }
+};
+
+module.exports = {
+  getMyBookings,
 };

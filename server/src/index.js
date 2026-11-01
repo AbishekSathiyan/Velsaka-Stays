@@ -1,3 +1,4 @@
+
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -7,22 +8,36 @@ const cookieParser = require("cookie-parser");
 require("dotenv").config();
 
 const connectDB = require("./config/db");
+
+// ======================================
+// ROUTE IMPORTS
+// ======================================
+
 const hotelRoutes = require("./routes/hotelRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const authRoutes = require("./routes/authRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+
+// ======================================
+// APP CONFIGURATION
+// ======================================
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Trust the first reverse proxy hop used by Render.
-// Configure this before rate limiting.
 app.set("trust proxy", 1);
 
-// Security headers
+// ======================================
+// SECURITY
+// ======================================
+
 app.use(helmet());
 
-// CORS configuration
+// ======================================
+// CORS CONFIGURATION
+// ======================================
+
 const allowedOrigins = [
   "http://localhost:5173",
   "https://velsaka-stays.vercel.app",
@@ -39,12 +54,15 @@ function isAllowedOrigin(origin) {
   try {
     const url = new URL(origin);
 
-    // Allow HTTPS Vercel previews belonging to this project.
     return (
       url.protocol === "https:" &&
-      (url.hostname === "velsaka-stays.vercel.app" ||
-        (url.hostname.endsWith(".vercel.app") &&
-          url.hostname.startsWith("velsaka-stays-")))
+      (
+        url.hostname === "velsaka-stays.vercel.app" ||
+        (
+          url.hostname.endsWith(".vercel.app") &&
+          url.hostname.startsWith("velsaka-stays-")
+        )
+      )
     );
   } catch {
     return false;
@@ -58,53 +76,92 @@ app.use(
         return callback(null, true);
       }
 
-      console.warn(`CORS blocked origin: ${origin}`);
+      console.warn("CORS blocked origin:", origin);
+
       return callback(new Error("Origin not allowed by CORS"));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
-  }),
+  })
 );
 
-// Request parsing
+// ======================================
+// REQUEST PARSING
+// ======================================
+
 app.use(express.json({ limit: "10kb" }));
+
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "10kb",
+  })
+);
+
 app.use(cookieParser());
 
-// Rate limiting
-app.use(
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 100,
-    standardHeaders: "draft-7",
-    legacyHeaders: false,
-  }),
-);
+// ======================================
+// RATE LIMITING
+// ======================================
 
-// Health endpoint
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many requests. Please try again later.",
+  },
+});
+
+app.use("/api", apiLimiter);
+
+// ======================================
+// HEALTH CHECK
+// ======================================
+
 app.get("/api/health", (req, res) => {
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     message: "VELSAKA STAYS API is running",
     timestamp: new Date().toISOString(),
   });
 });
 
-// Test endpoint
+// ======================================
+// SERVER TEST
+// ======================================
+
 app.get("/api/test", (req, res) => {
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     message: "Main server routes are working",
   });
 });
 
-// API routes
+// ======================================
+// API ROUTES
+// IMPORTANT: REGISTER BEFORE 404
+// ======================================
+
 app.use("/api/auth", authRoutes);
+
 app.use("/api/hotels", hotelRoutes);
+
 app.use("/api/payments", paymentRoutes);
+
 app.use("/api/bookings", bookingRoutes);
+
+app.use("/api/admin", adminRoutes);
+
+// ======================================
+// ROOT API STATUS PAGE
+// ======================================
+
 app.get("/", (req, res) => {
-  res.status(200).send(`
+  return res.status(200).send(`
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -199,7 +256,6 @@ app.get("/", (req, res) => {
           border-radius: 12px;
           text-decoration: none;
           color: #183c2b;
-          transition: background 0.2s;
         }
 
         .endpoint:hover {
@@ -243,7 +299,7 @@ app.get("/", (req, res) => {
 
         <p class="description">
           Welcome to the VELSAKA STAYS backend service.
-          Our API provides the services used by the hotel booking application.
+          Our API provides services for the hotel booking application.
         </p>
 
         <div class="status">
@@ -251,7 +307,7 @@ app.get("/", (req, res) => {
           <div>
             <strong>API service is running</strong>
             <p style="font-size: 12px; margin-top: 5px;">
-              Backend deployed successfully
+              Backend service is online
             </p>
           </div>
         </div>
@@ -261,17 +317,17 @@ app.get("/", (req, res) => {
         <div class="endpoints">
           <a class="endpoint" href="/api/health">
             <code>/api/health</code>
-            <span class="method">GET ↗</span>
+            <span class="method">GET</span>
           </a>
 
           <a class="endpoint" href="/api/test">
             <code>/api/test</code>
-            <span class="method">GET ↗</span>
+            <span class="method">GET</span>
           </a>
 
           <a class="endpoint" href="/api/hotels">
             <code>/api/hotels</code>
-            <span class="method">GET ↗</span>
+            <span class="method">GET</span>
           </a>
         </div>
 
@@ -285,49 +341,71 @@ app.get("/", (req, res) => {
   `);
 });
 
-// JSON response for unknown API endpoints
+// ======================================
+// SINGLE 404 HANDLER
+// MUST BE AFTER ALL ROUTES
+// ======================================
+
 app.use("/api", (req, res) => {
-  res.status(404).json({
+  return res.status(404).json({
     success: false,
-    message: "API endpoint not found",
+    message: `API endpoint not found: ${req.method} ${req.originalUrl}`,
   });
 });
 
-// Error handler
+// ======================================
+// GLOBAL ERROR HANDLER
+// ======================================
+
 app.use((err, req, res, next) => {
-  console.error("Server error:", err.message);
+  console.error("SERVER ERROR:", err);
 
   if (res.headersSent) {
     return next(err);
   }
 
-  res.status(err.status || 500).json({
+  const statusCode = err.status || 500;
+
+  return res.status(statusCode).json({
     success: false,
     message:
-      err.status && err.status < 500 ? err.message : "Internal server error",
+      statusCode < 500
+        ? err.message
+        : "Internal server error",
   });
 });
 
-// Start server
+// ======================================
+// START SERVER
+// ======================================
+
 async function startServer() {
   try {
-    if (!process.env.JWT_SECRET) {
-      throw new Error("JWT_SECRET is missing from environment variables");
-    }
-
     await connectDB();
 
     app.listen(PORT, () => {
-      console.log(`VELSAKA STAYS API running on port ${PORT}`);
+      console.log("----------------------------------");
+      console.log("VELSAKA STAYS BACKEND STARTED");
+      console.log("----------------------------------");
+
+      console.log(`Port: ${PORT}`);
       console.log(`Health: http://localhost:${PORT}/api/health`);
-      console.log(`Auth: http://localhost:${PORT}/api/auth`);
-      console.log(`Configured frontend origins: ${allowedOrigins.join(", ")}`);
-      console.log("Vercel preview origin checks enabled.");
+      console.log(`Test: http://localhost:${PORT}/api/test`);
+
+      console.log("Auth:     /api/auth");
+      console.log("Hotels:   /api/hotels");
+      console.log("Payments: /api/payments");
+      console.log("Bookings: /api/bookings");
+      console.log("Admin:    /api/admin");
+
+      console.log("----------------------------------");
     });
   } catch (error) {
-    console.error("Failed to start server:", error.message);
+    console.error("FAILED TO START SERVER:", error);
     process.exit(1);
   }
 }
 
 startServer();
+
+module.exports = app;
