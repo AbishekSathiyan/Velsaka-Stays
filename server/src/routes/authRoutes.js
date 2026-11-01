@@ -6,7 +6,7 @@ const authController = require("../controllers/authController");
 const {
   verifyFirebaseToken,
   requireDbUser,
-} = require("../middleware/authMiddleware");
+} = require("../middleware/authmiddleware");
 
 // Register / Login synchronization
 router.post(
@@ -30,6 +30,7 @@ router.put(
   requireDbUser,
   authController.updateProfile
 );
+
 
 // Logout
 router.post(
