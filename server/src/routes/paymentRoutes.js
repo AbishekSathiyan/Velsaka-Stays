@@ -9,7 +9,7 @@ const {
 const {
   verifyFirebaseToken,
   requireDbUser,
-} = require("../middleware/authMiddleware");
+} = require("../middleware/authmiddleware");
 
 router.post(
   "/create-order",
